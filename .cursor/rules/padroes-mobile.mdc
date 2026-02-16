@@ -1,0 +1,12 @@
+---
+description: Padrões do app Sintonia Mobile – estilos, i18n e design
+globs: sintonia-mobile/**/*.tsx, sintonia-mobile/**/*.ts
+---
+
+# Padrões Sintonia Mobile
+
+1. **Estilos:** Cada tela/componente `.tsx` tem um arquivo de estilos com o mesmo nome: `NomeDaTela.styles.ts`. Use `StyleSheet.create` apenas nesse arquivo e importe `styles` no `.tsx`. Nunca coloque `StyleSheet.create` dentro do componente.
+
+2. **Traduções:** Todo texto visível deve usar o sistema i18n. Chaves em `i18n/translations.ts` nos três idiomas (pt, en, es). No componente: `const { t } = useTranslation();` e exiba com `t('chave')`.
+
+3. **Design:** Limpo, simples, intuitivo e bonito, inspirado na logo. Assets de referência em sintonia-backoffice/public/assets: icon = ícone do app, logo = abertura (splash). No mobile use assets/icon e assets/logo.
