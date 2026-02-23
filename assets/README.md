@@ -1,7 +1,8 @@
 # Assets do app
 
-- **icon.png** – Ícone do app (home do dispositivo).
-- **logo.png** – Logo usada na tela de login (e splash). **Deve ser a mesma do backoffice.**
+- **icon.png** – Ícone do app (home, splash, adaptive). Atualmente usa a mesma arte de **sintonia-icon.png**.
+- **sintonia-icon.png** – Ícone roxo (S) enviado para o app. Usado como ícone do app e no fluxo de cadastro (ao lado do nome "Sintonia").
+- **logo.png** – Logo usada na tela de login. **Deve ser a mesma do backoffice.**
 
 ## Logo (obrigatória para a tela de login)
 

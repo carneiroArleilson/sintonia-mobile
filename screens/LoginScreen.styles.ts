@@ -1,11 +1,10 @@
 import { StyleSheet } from 'react-native';
 
-/** Estilos da tela de login. Design limpo e alinhado à marca Sintonia. */
-const BRAND_BG = '#ffffff';
-const BRAND_PRIMARY = '#1a1a2e';
-const BRAND_ACCENT = '#16213e';
-const TEXT_PRIMARY = '#1a1a2e';
-const TEXT_SECONDARY = '#5c5c6d';
+/** Paleta da logo Sintonia: roxo do ícone + cinza escuro do texto */
+const BRAND_BG = '#FFFFFF';
+const BRAND_PRIMARY = '#262626';   // cinza escuro (texto "SINTONIA" da logo)
+const TEXT_PRIMARY = '#262626';
+const TEXT_SECONDARY = '#5C4D6B';  // roxo acinzentado
 const SPACING = 24;
 const LOGO_HEIGHT = 180;
 
@@ -17,7 +16,7 @@ const BUTTON_APPLE_FG = '#ffffff';
 const BUTTON_FACEBOOK_BG = '#1877F2';
 const BUTTON_FACEBOOK_FG = '#ffffff';
 const BUTTON_PHONE_BG = '#25D366';
-const BUTTON_PHONE_FG = '#ffffff';   /* verde-azulado escuro, mesma “temperatura” do sistema */
+const BUTTON_PHONE_FG = '#ffffff';   /* verde-azulado escuro, mesma "temperatura" do sistema */
 
 export const styles = StyleSheet.create({
   container: {
@@ -38,12 +37,6 @@ export const styles = StyleSheet.create({
     width: 560,
     height: 240,
     resizeMode: 'contain',
-  },
-  logoText: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: BRAND_PRIMARY,
-    letterSpacing: 0.5,
   },
   tagline: {
     alignSelf: 'stretch',

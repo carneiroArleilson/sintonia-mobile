@@ -1,7 +1,7 @@
 import { StyleSheet } from 'react-native';
 
-/** Estilos do App (tela raiz). Cores/espacamento alinhados à marca Sintonia. */
-const BRAND_BG = '#fff';
+/** Paleta da logo Sintonia: fundo roxo suave */
+const BRAND_BG = '#F5EFFB';
 
 export const styles = StyleSheet.create({
   container: {
