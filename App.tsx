@@ -4,7 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LanguageProvider } from './i18n/LanguageProvider';
 import { AuthProvider, useAuth } from './api/AuthContext';
 import { LoginScreen } from './screens/LoginScreen';
-import { HomeScreen } from './screens/HomeScreen';
+import { MainLayout } from './screens/MainLayout';
 import { ProfileCompletionScreen } from './screens/ProfileCompletionScreen';
 import { styles } from './App.styles';
 
@@ -25,7 +25,7 @@ function AppContent() {
   if (isAppUserWithIncompleteProfile) {
     return <ProfileCompletionScreen />;
   }
-  return <HomeScreen />;
+  return <MainLayout />;
 }
 
 export default function App() {

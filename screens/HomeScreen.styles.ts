@@ -14,7 +14,7 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 32,
+    paddingBottom: 72,
   },
   title: {
     fontSize: 24,
@@ -37,7 +37,7 @@ export const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
-    marginBottom: 24,
+    marginBottom: 32,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
@@ -62,6 +62,7 @@ export const styles = StyleSheet.create({
     color: BRAND_PRIMARY,
   },
   logoutButton: {
+    marginTop: 24,
     paddingVertical: 14,
     paddingHorizontal: 24,
     backgroundColor: '#D4C4E8',

@@ -46,7 +46,7 @@ function DataRow({
   );
 }
 
-export function HomeScreen() {
+export function HomeScreen({ embedded }: { embedded?: boolean }) {
   const insets = useSafeAreaInsets();
   const { t, lang } = useTranslation();
   const { user, logout, refreshProfile } = useAuth();
@@ -66,10 +66,23 @@ export function HomeScreen() {
   const categoriesCount = user?.categories?.length ?? 0;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          paddingTop: embedded ? 16 : insets.top,
+          paddingBottom: embedded ? 0 : insets.bottom,
+        },
+      ]}
+    >
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          embedded && {
+            paddingBottom: 24 + 56 + insets.bottom,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.title}>{t('homeProfileTitle')}</Text>
