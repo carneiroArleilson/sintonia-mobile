@@ -90,7 +90,10 @@ export async function signInWithGoogle(): Promise<{
 export type GoogleSignInResult = Awaited<ReturnType<typeof signInWithGoogle>>;
 
 /**
- * Facebook: abre a URL de login e captura o access_token do redirect.
+ * Facebook: autenticação via OAuth (abre browser e captura access_token no redirect).
+ * Mesmas etapas que Google/Apple: login → cadastro se incompleto → home.
+ * No Facebook Developers: adicione "Facebook Login" e em "Valid OAuth Redirect URIs"
+ * coloque o redirect que o Expo mostra (ex.: https://auth.expo.io/@seu-user/sintonia-mobile).
  */
 export async function signInWithFacebook(): Promise<{ accessToken: string } | null> {
   if (!FACEBOOK_APP_ID) {
@@ -98,12 +101,18 @@ export async function signInWithFacebook(): Promise<{ accessToken: string } | nu
     return null;
   }
   const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
-  const url = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${FACEBOOK_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=email,public_profile`;
+  if (__DEV__) {
+    console.log('[Facebook] Redirect URI (adicione no Facebook App):', redirectUri);
+  }
+  const url = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${FACEBOOK_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=email,public_profile`;
   const result = await WebBrowser.openAuthSessionAsync(url, redirectUri);
   if (result?.type !== 'success' || !result.url) return null;
-  const match = result.url.match(/#access_token=([^&]+)/);
-  const accessToken = match?.[1] ? decodeURIComponent(match[1]) : null;
-  return accessToken ? { accessToken } : null;
+  const hashMatch = result.url.match(/#access_token=([^&]+)/);
+  const queryMatch = result.url.match(/[?&]access_token=([^&]+)/);
+  const raw = hashMatch?.[1] ?? queryMatch?.[1];
+  if (!raw) return null;
+  const accessToken = decodeURIComponent(raw);
+  return { accessToken };
 }
 
 /**

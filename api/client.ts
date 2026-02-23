@@ -74,6 +74,37 @@ export async function loginWithSocial(
   return data;
 }
 
+/** Solicita código OTP para o telefone (backend gera e persiste; em produção enviar SMS). */
+export async function requestPhoneCode(phone: string): Promise<{ success: boolean }> {
+  const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/app/phone/request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: phone.trim() }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Falha ao enviar código');
+  }
+  return res.json();
+}
+
+/** Verifica código OTP e retorna token + dados do usuário (mesmo formato do login social). */
+export async function verifyPhoneCode(
+  phone: string,
+  code: string,
+): Promise<LoginResult> {
+  const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/app/phone/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: phone.trim(), code: code.trim() }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Código inválido ou expirado');
+  }
+  return res.json();
+}
+
 export type AppProfile = {
   nome?: string;
   photoUrl?: string | null;
@@ -95,6 +126,7 @@ export async function getProfile(accessToken: string): Promise<{
   genderLookingFor?: string | null;
   categories?: string[];
   profileComplete?: boolean;
+  signupVia?: 'phone' | 'social';
 }> {
   const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -105,6 +137,22 @@ export async function getProfile(accessToken: string): Promise<{
     console.log('[API] GET /auth/me photoUrl:', data?.photoUrl ? data.photoUrl.substring(0, 50) + '...' : '(vazio)', 'profileComplete:', data?.profileComplete);
   }
   return data;
+}
+
+/** Verifica se o e-mail está disponível (não usado por outra conta). Requer token. */
+export async function checkEmailAvailable(
+  accessToken: string,
+  email: string,
+): Promise<{ available: boolean }> {
+  const encoded = encodeURIComponent(email.trim().toLowerCase());
+  const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/check-email?email=${encoded}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Falha ao verificar e-mail');
+  }
+  return res.json();
 }
 
 export type CategoryItem = { id: string; key: string; label: string };

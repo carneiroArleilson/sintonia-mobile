@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   loginWithSocial as apiLoginSocial,
   getProfile,
-  updateAppProfile,
+  verifyPhoneCode,
   type LoginResult,
 } from './client';
 
@@ -21,6 +21,8 @@ export type AuthUser = {
   genderLookingFor?: string | null;
   categories?: string[];
   profileComplete?: boolean;
+  /** 'phone' = login por telefone (não pedir telefone no cadastro); 'social' = login por email (não pedir email) */
+  signupVia?: 'phone' | 'social';
 };
 
 type AuthContextValue = {
@@ -35,6 +37,7 @@ type AuthContextValue = {
     provider: 'google' | 'facebook' | 'apple',
     options: { idToken?: string; accessToken?: string },
   ) => Promise<void>;
+  loginWithPhone: (phone: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   setResult: (result: LoginResult) => void;
 };
@@ -72,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         genderLookingFor: profile.genderLookingFor ?? undefined,
         categories: profile.categories,
         profileComplete: profile.profileComplete,
+        signupVia: profile.signupVia,
       });
     } catch {
       // keep current user
@@ -121,6 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           genderLookingFor: profile.genderLookingFor ?? result.genderLookingFor ?? undefined,
           categories: profile.categories ?? result.categories,
           profileComplete: profile.profileComplete,
+          signupVia: profile.signupVia,
         });
       } catch {
         // mantém nome/foto do result já definidos acima
@@ -128,6 +133,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     [],
   );
+
+  const loginWithPhone = useCallback(async (phone: string, code: string) => {
+    const result = await verifyPhoneCode(phone, code);
+    setToken(result.access_token);
+    AsyncStorage.setItem(TOKEN_KEY, result.access_token);
+    setUser({
+      email: result.email,
+      nome: result.nome,
+      role: result.role,
+      photoUrl: result.photoUrl ?? undefined,
+      birthDate: result.birthDate ?? undefined,
+      gender: result.gender ?? undefined,
+      genderLookingFor: result.genderLookingFor ?? undefined,
+      categories: result.categories,
+      profileComplete: false,
+    });
+    try {
+      const profile = await getProfile(result.access_token);
+      setUser({
+        email: profile.email,
+        nome: profile.nome,
+        role: profile.role,
+        phone: profile.phone ?? undefined,
+        photoUrl: profile.photoUrl ?? undefined,
+        birthDate: profile.birthDate ?? undefined,
+        gender: profile.gender ?? undefined,
+        genderLookingFor: profile.genderLookingFor ?? undefined,
+        categories: profile.categories,
+        profileComplete: profile.profileComplete,
+        signupVia: profile.signupVia,
+      });
+    } catch {
+      // mantém dados do result
+    }
+  }, []);
 
   const logout = useCallback(async () => {
     setToken(null);
@@ -158,6 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           genderLookingFor: profile.genderLookingFor ?? undefined,
           categories: profile.categories,
           profileComplete: profile.profileComplete,
+          signupVia: profile.signupVia,
         });
       } catch {
         if (!cancelled) {
@@ -191,6 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshProfile,
     markProfileComplete,
     loginWithSocial,
+    loginWithPhone,
     logout,
     setResult,
   };

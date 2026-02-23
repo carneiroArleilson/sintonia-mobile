@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,197 +18,40 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from '../i18n/LanguageProvider';
 import { useAuth } from '../api/AuthContext';
-import { getCategories, updateAppProfile, uploadProfilePhoto, updateProfilePhotoUrl, type CategoryItem } from '../api/client';
+import { getCategories, updateAppProfile, uploadProfilePhoto, updateProfilePhotoUrl, checkEmailAvailable, type CategoryItem } from '../api/client';
 import { styles } from './ProfileCompletionScreen.styles';
 import * as ImagePicker from 'expo-image-picker';
 
 const PLACEHOLDER_COLOR = '#9CA3AF';
-const TOTAL_STEPS = 8;
+
+type StepType = 'name' | 'email' | 'phone' | 'birthDate' | 'gender' | 'who' | 'categories' | 'photo';
+
+function buildStepTypes(signupVia?: 'phone' | 'social'): StepType[] {
+  return [
+    'name',
+    ...(signupVia !== 'social' ? (['email'] as const) : []),
+    ...(signupVia !== 'phone' ? (['phone'] as const) : []),
+    'birthDate',
+    'gender',
+    'who',
+    'categories',
+    'photo',
+  ];
+}
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function isValidEmail(s: string): boolean {
   return EMAIL_REGEX.test(s.trim());
 }
 
-/** País com código de discagem e máscara do número nacional */
-type PhoneCountry = {
-  code: string;
-  name: string;
-  maxLen: number;
-  placeholder: string;
-  mask: (nationalDigits: string) => string;
-};
-
-const PHONE_COUNTRIES: PhoneCountry[] = [
-  {
-    code: '55',
-    name: 'Brasil',
-    maxLen: 11,
-    placeholder: '(11) 99999-9999',
-    mask: (d) => {
-      if (d.length <= 2) return d ? `(${d}` : '';
-      if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
-      if (d.length === 7) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}`;
-      return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-    },
-  },
-  {
-    code: '1',
-    name: 'EUA / Canadá',
-    maxLen: 10,
-    placeholder: '(123) 456-7890',
-    mask: (d) => {
-      if (d.length <= 3) return d ? `(${d}` : '';
-      if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
-      return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
-    },
-  },
-  {
-    code: '52',
-    name: 'México',
-    maxLen: 10,
-    placeholder: '(55) 1234-5678',
-    mask: (d) => {
-      if (d.length <= 2) return d || '';
-      if (d.length <= 5) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
-      if (d.length === 6) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}`;
-      return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
-    },
-  },
-  {
-    code: '54',
-    name: 'Argentina',
-    maxLen: 10,
-    placeholder: '(11) 9999-9999',
-    mask: (d) => {
-      if (d.length <= 2) return d ? `(${d}` : '';
-      if (d.length <= 5) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
-      if (d.length === 6) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}`;
-      return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
-    },
-  },
-  {
-    code: '34',
-    name: 'Espanha',
-    maxLen: 9,
-    placeholder: '612 345 678',
-    mask: (d) => {
-      if (d.length <= 3) return d || '';
-      if (d.length <= 6) return `${d.slice(0, 3)} ${d.slice(3)}`;
-      return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
-    },
-  },
-  {
-    code: '351',
-    name: 'Portugal',
-    maxLen: 9,
-    placeholder: '912 345 678',
-    mask: (d) => {
-      if (d.length <= 3) return d || '';
-      if (d.length <= 6) return `${d.slice(0, 3)} ${d.slice(3)}`;
-      return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
-    },
-  },
-  {
-    code: '57',
-    name: 'Colômbia',
-    maxLen: 10,
-    placeholder: '(300) 123-4567',
-    mask: (d) => {
-      if (d.length <= 3) return d ? `(${d}` : '';
-      if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
-      if (d.length === 7) return `(${d.slice(0, 3)}) ${d.slice(3, 7)}`;
-      return `(${d.slice(0, 3)}) ${d.slice(3, 7)}-${d.slice(7)}`;
-    },
-  },
-  {
-    code: '56',
-    name: 'Chile',
-    maxLen: 9,
-    placeholder: '9123 4567',
-    mask: (d) => {
-      if (d.length <= 4) return d || '';
-      return `${d.slice(0, 4)} ${d.slice(4)}`;
-    },
-  },
-  {
-    code: '51',
-    name: 'Peru',
-    maxLen: 9,
-    placeholder: '999 123 456',
-    mask: (d) => {
-      if (d.length <= 3) return d || '';
-      return `${d.slice(0, 3)} ${d.slice(3)}`;
-    },
-  },
-  {
-    code: '593',
-    name: 'Equador',
-    maxLen: 9,
-    placeholder: '99 123 4567',
-    mask: (d) => {
-      if (d.length <= 3) return d || '';
-      return `${d.slice(0, 3)} ${d.slice(3)}`;
-    },
-  },
-  {
-    code: '598',
-    name: 'Uruguai',
-    maxLen: 8,
-    placeholder: '99 123 45',
-    mask: (d) => (d.length <= 4 ? d : `${d.slice(0, 4)} ${d.slice(4)}`),
-  },
-  {
-    code: '595',
-    name: 'Paraguai',
-    maxLen: 9,
-    placeholder: '981 123 456',
-    mask: (d) => (d.length <= 4 ? d : `${d.slice(0, 4)} ${d.slice(4)}`),
-  },
-  {
-    code: '353',
-    name: 'Irlanda',
-    maxLen: 9,
-    placeholder: '85 123 4567',
-    mask: (d) => {
-      if (d.length <= 2) return d || '';
-      if (d.length <= 5) return `${d.slice(0, 2)} ${d.slice(2)}`;
-      return `${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5)}`;
-    },
-  },
-];
-
-const DEFAULT_PHONE_COUNTRY = PHONE_COUNTRIES[0];
-
-function getCountryByCode(code: string): PhoneCountry {
-  return PHONE_COUNTRIES.find((c) => c.code === code) ?? DEFAULT_PHONE_COUNTRY;
-}
-
-/** Extrai código do país e número nacional a partir do número completo (só dígitos). */
-function parseFullPhone(fullDigits: string): { code: string; national: string } {
-  const d = fullDigits.replace(/\D/g, '');
-  if (!d.length) return { code: DEFAULT_PHONE_COUNTRY.code, national: '' };
-  const sorted = [...PHONE_COUNTRIES].filter((c) => c.name !== 'Other').sort((a, b) => b.code.length - a.code.length);
-  for (const country of sorted) {
-    if (d.startsWith(country.code)) {
-      const national = d.slice(country.code.length).slice(0, country.maxLen);
-      return { code: country.code, national };
-    }
-  }
-  return { code: DEFAULT_PHONE_COUNTRY.code, national: d.slice(0, 15) };
-}
-
-function applyPhoneMaskByCountry(nationalDigits: string, country: PhoneCountry): string {
-  const d = nationalDigits.replace(/\D/g, '').slice(0, country.maxLen);
-  return country.mask(d);
-}
-
-/** Retorna número completo em dígitos: código do país + nacional */
-function getFullPhoneDigits(countryCode: string, nationalDigits: string): string {
-  const d = nationalDigits.replace(/\D/g, '').trim();
-  const country = getCountryByCode(countryCode);
-  return countryCode + d.slice(0, country.maxLen);
-}
+import {
+  PHONE_COUNTRIES,
+  DEFAULT_PHONE_COUNTRY,
+  getCountryByCode,
+  parseFullPhone,
+  applyPhoneMaskByCountry,
+  getFullPhoneDigits,
+} from '../utils/phone';
 
 /* Como você se identifica: 3 opções como na referência */
 const GENDER_SEGMENTS = [
@@ -302,6 +145,9 @@ export function ProfileCompletionScreen() {
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
   const hasInitializedFromUser = useRef(false);
 
+  const stepTypes = useMemo(() => buildStepTypes(user?.signupVia), [user?.signupVia]);
+  const totalSteps = stepTypes.length;
+
   // Sincroniza do user apenas na carga inicial; não sobrescreve o que o usuário já preencheu
   useEffect(() => {
     if (!user || hasInitializedFromUser.current) return;
@@ -342,34 +188,59 @@ export function ProfileCompletionScreen() {
   }, []);
 
   const canProceedStep = useCallback(() => {
-    switch (step) {
-      case 0:
+    const stepType = stepTypes[step];
+    if (!stepType) return false;
+    switch (stepType) {
+      case 'name':
         return name.trim().length > 0;
-      case 1:
+      case 'email':
         return isValidEmail(email);
-      case 2:
+      case 'phone':
         return getFullPhoneDigits(phoneCountryCode, phoneNationalDigits).length >= 10;
-      case 3:
+      case 'birthDate':
         return isValidDateString(birthDate.trim());
-      case 4:
+      case 'gender':
         return gender != null && gender.length > 0;
-      case 5:
+      case 'who':
         return genderLookingFor != null && genderLookingFor.length > 0;
-      case 6:
+      case 'categories':
         return categoryIds.length > 0;
-      case 7:
+      case 'photo':
         return true;
       default:
         return false;
     }
-  }, [step, name, email, phoneCountryCode, phoneNationalDigits, birthDate, gender, genderLookingFor, categoryIds]);
+  }, [step, stepTypes, name, email, phoneCountryCode, phoneNationalDigits, birthDate, gender, genderLookingFor, categoryIds]);
 
-  const handleNext = useCallback(() => {
-    if (step < TOTAL_STEPS - 1) {
+  const [emailCheckLoading, setEmailCheckLoading] = useState(false);
+
+  const handleNext = useCallback(async () => {
+    if (step < totalSteps - 1) {
+      const stepType = stepTypes[step];
+      if (stepType === 'email') {
+        if (!isValidEmail(email)) return;
+        if (!token) return;
+        setEmailCheckLoading(true);
+        try {
+          const { available } = await checkEmailAvailable(token, email.trim().toLowerCase());
+          if (!available) {
+            Alert.alert(t('profileEmailInUse'), undefined, [{ text: 'OK' }]);
+            return;
+          }
+          prevStepRef.current = step;
+          setStep((s) => s + 1);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'Falha ao verificar e-mail';
+          Alert.alert('Erro', msg);
+        } finally {
+          setEmailCheckLoading(false);
+        }
+        return;
+      }
       prevStepRef.current = step;
       setStep((s) => s + 1);
     }
-  }, [step]);
+  }, [step, totalSteps, stepTypes, email, token, t]);
 
   const handleBack = useCallback(() => {
     if (step > 0) {
@@ -441,10 +312,16 @@ export function ProfileCompletionScreen() {
 
   const handleFinish = async () => {
     if (!token || saving) return;
+    const hasEmailStep = stepTypes.includes('email');
+    const hasPhoneStep = stepTypes.includes('phone');
+    const emailOk = hasEmailStep ? isValidEmail(email) : (user?.email?.trim()?.length ?? 0) > 0;
+    const phoneOk = hasPhoneStep
+      ? getFullPhoneDigits(phoneCountryCode, phoneNationalDigits).length >= 10
+      : (user?.phone?.replace(/\D/g, '').length ?? 0) >= 10;
     const valid =
       name.trim().length > 0 &&
-      isValidEmail(email) &&
-      getFullPhoneDigits(phoneCountryCode, phoneNationalDigits).length >= 10 &&
+      emailOk &&
+      phoneOk &&
       isValidDateString(birthDate.trim()) &&
       gender &&
       genderLookingFor &&
@@ -472,8 +349,8 @@ export function ProfileCompletionScreen() {
             })();
       const payload = {
         nome: name.trim(),
-        email: email.trim().toLowerCase(),
-        phone: getFullPhoneDigits(phoneCountryCode, phoneNationalDigits),
+        email: hasEmailStep ? email.trim().toLowerCase() : (user?.email ?? '').trim().toLowerCase(),
+        phone: hasPhoneStep ? getFullPhoneDigits(phoneCountryCode, phoneNationalDigits) : (user?.phone ?? '').replace(/\D/g, ''),
         birthDate: birthDateIso,
         gender: gender ?? undefined,
         genderLookingFor: genderLookingFor ?? undefined,
@@ -526,8 +403,10 @@ export function ProfileCompletionScreen() {
   };
 
   const renderStepContent = () => {
-    switch (step) {
-      case 0:
+    const stepType = stepTypes[step];
+    if (!stepType) return null;
+    switch (stepType) {
+      case 'name':
         return (
           <View style={styles.stepBlock}>
             <Text style={styles.stepTitle}>{t('profileNameTitle')}</Text>
@@ -543,7 +422,7 @@ export function ProfileCompletionScreen() {
             />
           </View>
         );
-      case 1:
+      case 'email':
         return (
           <View style={styles.stepBlock}>
             <Text style={styles.stepTitle}>{t('profileEmailTitle')}</Text>
@@ -561,7 +440,7 @@ export function ProfileCompletionScreen() {
             />
           </View>
         );
-      case 2: {
+      case 'phone': {
         const phoneCountry = getCountryByCode(phoneCountryCode);
         const phoneDisplay = applyPhoneMaskByCountry(phoneNationalDigits, phoneCountry);
         return (
@@ -632,7 +511,7 @@ export function ProfileCompletionScreen() {
           </View>
         );
       }
-      case 3:
+      case 'birthDate':
         return (
           <View style={styles.stepBlock}>
             <Text style={styles.stepTitle}>{t('profileBirthDateTitle')}</Text>
@@ -718,7 +597,7 @@ export function ProfileCompletionScreen() {
             )}
           </View>
         );
-      case 4:
+      case 'gender':
         return (
           <View style={styles.stepBlock}>
             <Text style={styles.stepTitle}>{t('profileGenderTitle')}</Text>
@@ -744,7 +623,7 @@ export function ProfileCompletionScreen() {
             </View>
           </View>
         );
-      case 5:
+      case 'who':
         return (
           <View style={styles.stepBlock}>
             <Text style={styles.stepTitle}>{t('profileGenderLookingFor')}</Text>
@@ -773,7 +652,7 @@ export function ProfileCompletionScreen() {
             </View>
           </View>
         );
-      case 6:
+      case 'categories':
         return (
           <View style={styles.stepBlock}>
             <Text style={styles.stepTitle}>{t('profileCategories')}</Text>
@@ -805,7 +684,7 @@ export function ProfileCompletionScreen() {
             )}
           </View>
         );
-      case 7:
+      case 'photo': {
         const photoUri = localPhotoUri || user?.photoUrl || null;
         return (
           <View style={styles.stepBlock}>
@@ -840,12 +719,13 @@ export function ProfileCompletionScreen() {
             </View>
           </View>
         );
+      }
       default:
         return null;
     }
   };
 
-  const isLastStep = step === TOTAL_STEPS - 1;
+  const isLastStep = step === totalSteps - 1;
   const canGoNext = canProceedStep();
 
   return (
@@ -912,16 +792,20 @@ export function ProfileCompletionScreen() {
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[styles.continueBtn, !canGoNext && styles.continueBtnDisabled]}
+            style={[styles.continueBtn, (!canGoNext || emailCheckLoading) && styles.continueBtnDisabled]}
             onPress={handleNext}
-            disabled={!canGoNext}
+            disabled={!canGoNext || emailCheckLoading}
             activeOpacity={0.85}
           >
-            <Text style={styles.continueBtnText}>{t('profileContinue')}</Text>
+            {emailCheckLoading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.continueBtnText}>{t('profileContinue')}</Text>
+            )}
           </TouchableOpacity>
         )}
         <View style={styles.dotsRow}>
-          {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+          {Array.from({ length: totalSteps }).map((_, i) => (
             <View key={i} style={[styles.dot, i === step && styles.dotActive]} />
           ))}
         </View>
