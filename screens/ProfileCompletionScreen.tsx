@@ -18,24 +18,27 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from '../i18n/LanguageProvider';
 import { useAuth } from '../api/AuthContext';
-import { getCategories, updateAppProfile, uploadProfilePhoto, updateProfilePhotoUrl, checkEmailAvailable, type CategoryItem } from '../api/client';
+import { getCategories, updateAppProfile, uploadProfilePhoto, updateProfilePhotoUrl, checkEmailAvailable, addGalleryPhoto, removeGalleryPhoto, type CategoryItem } from '../api/client';
 import { styles } from './ProfileCompletionScreen.styles';
+import { PhotoSourceModal } from '../components/PhotoSourceModal';
 import * as ImagePicker from 'expo-image-picker';
 
 const PLACEHOLDER_COLOR = '#9CA3AF';
 
-type StepType = 'name' | 'email' | 'phone' | 'birthDate' | 'gender' | 'who' | 'categories' | 'photo';
+type StepType = 'name' | 'email' | 'phone' | 'birthDate' | 'gender' | 'who' | 'categories' | 'photo' | 'gallery';
 
-function buildStepTypes(signupVia?: 'phone' | 'social'): StepType[] {
+function buildStepTypes(signupVia?: 'phone' | 'social' | 'email'): StepType[] {
   return [
     'name',
-    ...(signupVia !== 'social' ? (['email'] as const) : []),
+    // Não pedir email se entrou por email ou social (já tem email).
+    ...(signupVia !== 'social' && signupVia !== 'email' ? (['email'] as const) : []),
     ...(signupVia !== 'phone' ? (['phone'] as const) : []),
     'birthDate',
     'gender',
     'who',
     'categories',
     'photo',
+    'gallery',
   ];
 }
 
@@ -121,7 +124,7 @@ function applyDateMask(input: string, lang: Lang): string {
 export function ProfileCompletionScreen() {
   const insets = useSafeAreaInsets();
   const { t, lang } = useTranslation();
-  const { user, token, refreshProfile, markProfileComplete } = useAuth();
+  const { user, token, refreshProfile, refreshProfileAndMarkComplete, markProfileComplete } = useAuth();
   const [step, setStep] = useState(0);
   const [name, setName] = useState(user?.nome ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
@@ -142,7 +145,10 @@ export function ProfileCompletionScreen() {
   const transitionAnim = useRef(new Animated.Value(1)).current;
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [showPhotoSourceModal, setShowPhotoSourceModal] = useState(false);
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
+  const [showGalleryPhotoModal, setShowGalleryPhotoModal] = useState(false);
+  const [galleryUploading, setGalleryUploading] = useState(false);
   const hasInitializedFromUser = useRef(false);
 
   const stepTypes = useMemo(() => buildStepTypes(user?.signupVia), [user?.signupVia]);
@@ -207,6 +213,8 @@ export function ProfileCompletionScreen() {
         return categoryIds.length > 0;
       case 'photo':
         return true;
+      case 'gallery':
+        return true;
       default:
         return false;
     }
@@ -249,52 +257,181 @@ export function ProfileCompletionScreen() {
     }
   }, [step]);
 
-  const pickAndUploadPhoto = useCallback(async () => {
-    if (!token || photoUploading) return;
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        t('profilePhoto'),
-        'Para adicionar uma foto, permita o acesso à galeria nas configurações do dispositivo.',
-      );
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-    const asset = result.assets[0];
-    setLocalPhotoUri(asset.uri);
-    setPhotoUploading(true);
-    try {
-      const { url } = await uploadProfilePhoto(token, {
-        uri: asset.uri,
-        type: asset.mimeType || 'image/jpeg',
-        name: 'photo.jpg',
-      });
-      setLocalPhotoUri(url);
-      try {
-        await updateProfilePhotoUrl(token, url);
-        await refreshProfile();
-        setLocalPhotoUri(null);
-      } catch (updateErr) {
-        const updateMsg = updateErr instanceof Error ? updateErr.message : '';
-        if (updateMsg.includes('User not found') || updateMsg.includes('not found')) {
-          await refreshProfile();
-        } else {
-          throw updateErr;
+  const runPicker = useCallback(
+    async (source: 'gallery' | 'camera') => {
+      if (!token || photoUploading) return;
+      if (source === 'gallery') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            t('profilePhoto'),
+            'Para adicionar uma foto, permita o acesso à galeria nas configurações do dispositivo.',
+          );
+          return;
+        }
+      } else {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            t('profilePhoto'),
+            'Para tirar uma foto, permita o acesso à câmera nas configurações do dispositivo.',
+          );
+          return;
         }
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Falha ao enviar foto';
-      Alert.alert('Erro', msg);
-    } finally {
-      setPhotoUploading(false);
-    }
-  }, [token, photoUploading, refreshProfile, t]);
+      const launchOptions: ImagePicker.ImagePickerOptions = {
+        mediaTypes: 'images',
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      };
+      const result =
+        source === 'gallery'
+          ? await ImagePicker.launchImageLibraryAsync(launchOptions)
+          : await ImagePicker.launchCameraAsync(launchOptions);
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      setLocalPhotoUri(asset.uri);
+      setPhotoUploading(true);
+      try {
+        const { url } = await uploadProfilePhoto(token, {
+          uri: asset.uri,
+          type: asset.mimeType || 'image/jpeg',
+          name: 'photo.jpg',
+        });
+        setLocalPhotoUri(url);
+        try {
+          await updateProfilePhotoUrl(token, url);
+          await refreshProfile();
+        } catch (updateErr) {
+          const updateMsg = updateErr instanceof Error ? updateErr.message : '';
+          if (updateMsg.includes('User not found') || updateMsg.includes('not found')) {
+            await refreshProfile();
+          } else {
+            throw updateErr;
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Falha ao enviar foto';
+        Alert.alert('Erro', msg);
+      } finally {
+        setPhotoUploading(false);
+      }
+    },
+    [token, photoUploading, refreshProfile, t],
+  );
+
+  const openPhotoSourceModal = useCallback(() => {
+    if (!token || photoUploading) return;
+    setShowPhotoSourceModal(true);
+  }, [token, photoUploading]);
+
+  const runPickerForGallery = useCallback(
+    async (source: 'gallery' | 'camera') => {
+      if (!token || galleryUploading) return;
+      if (source === 'gallery') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            t('profilePhoto'),
+            'Para adicionar uma foto, permita o acesso à galeria nas configurações do dispositivo.',
+          );
+          return;
+        }
+      } else {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            t('profilePhoto'),
+            'Para tirar uma foto, permita o acesso à câmera nas configurações do dispositivo.',
+          );
+          return;
+        }
+      }
+      if (source === 'gallery') {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: 'images',
+          allowsMultipleSelection: true,
+          selectionLimit: 20,
+          quality: 0.8,
+        });
+        if (result.canceled || !result.assets?.length) return;
+        setGalleryUploading(true);
+        try {
+          for (const asset of result.assets) {
+            if (!asset.uri) continue;
+            const { url } = await uploadProfilePhoto(token, {
+              uri: asset.uri,
+              type: asset.mimeType || 'image/jpeg',
+              name: 'photo.jpg',
+            });
+            await addGalleryPhoto(token, url);
+          }
+          if (result.assets.length > 0) await refreshProfile();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'Falha ao enviar foto';
+          Alert.alert('Erro', msg);
+        } finally {
+          setGalleryUploading(false);
+        }
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: 'images',
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      setGalleryUploading(true);
+      try {
+        const { url } = await uploadProfilePhoto(token, {
+          uri: asset.uri,
+          type: asset.mimeType || 'image/jpeg',
+          name: 'photo.jpg',
+        });
+        await addGalleryPhoto(token, url);
+        await refreshProfile();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Falha ao enviar foto';
+        Alert.alert('Erro', msg);
+      } finally {
+        setGalleryUploading(false);
+      }
+    },
+    [token, galleryUploading, refreshProfile, t],
+  );
+
+  const openGalleryPhotoModal = useCallback(() => {
+    if (!token || galleryUploading) return;
+    setShowGalleryPhotoModal(true);
+  }, [token, galleryUploading]);
+
+  const handleRemoveGalleryPhoto = useCallback(
+    (photoId: string) => {
+      Alert.alert(
+        t('galleryRemove'),
+        t('galleryRemoveConfirm'),
+        [
+          { text: t('cancelEdit'), style: 'cancel' },
+          {
+            text: t('galleryRemove'),
+            style: 'destructive',
+            onPress: async () => {
+              if (!token) return;
+              try {
+                await removeGalleryPhoto(token, photoId);
+                await refreshProfile();
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : 'Falha ao remover';
+                Alert.alert('Erro', msg);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [token, refreshProfile, t],
+  );
 
   useEffect(() => {
     if (step > prevStepRef.current) {
@@ -372,17 +509,16 @@ export function ProfileCompletionScreen() {
         console.log('[ProfileCompletion] Perfil salvo, atualizando estado...');
       }
       try {
-        await refreshProfile();
-        markProfileComplete();
+        await refreshProfileAndMarkComplete();
       } catch (refreshErr) {
         if (__DEV__) {
-          console.warn('[ProfileCompletion] refreshProfile falhou, tentando novamente:', refreshErr);
+          console.warn('[ProfileCompletion] refreshProfileAndMarkComplete falhou, tentando novamente:', refreshErr);
         }
         await new Promise((r) => setTimeout(r, 800));
         try {
-          await refreshProfile();
-          markProfileComplete();
+          await refreshProfileAndMarkComplete();
         } catch (retryErr) {
+          markProfileComplete();
           Alert.alert(
             t('profileSavedTitle'),
             t('profileSavedRefreshFail'),
@@ -693,7 +829,7 @@ export function ProfileCompletionScreen() {
             <View style={styles.photoWrap}>
               <TouchableOpacity
                 activeOpacity={0.9}
-                onPress={pickAndUploadPhoto}
+                onPress={openPhotoSourceModal}
                 disabled={photoUploading}
                 style={styles.photoTouchable}
               >
@@ -715,6 +851,43 @@ export function ProfileCompletionScreen() {
                     <Text style={styles.photoLabel}>{t('profilePhotoAdd')}</Text>
                   </View>
                 )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+      }
+      case 'gallery': {
+        const galleryPhotos = user?.galleryPhotos ?? [];
+        return (
+          <View style={styles.stepBlock}>
+            <Text style={styles.stepTitle}>{t('galleryTitle')}</Text>
+            <Text style={styles.stepSubtitle}>{t('gallerySubtitle')}</Text>
+            <View style={styles.galleryGrid}>
+              {galleryPhotos.map((photo) => (
+                <View key={photo.id} style={styles.galleryItem}>
+                  <Image source={{ uri: photo.url }} style={styles.galleryItemImage} resizeMode="cover" />
+                  <TouchableOpacity
+                    style={styles.galleryRemoveBtn}
+                    onPress={() => handleRemoveGalleryPhoto(photo.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="close" size={18} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <TouchableOpacity
+                style={styles.galleryAddCell}
+                onPress={openGalleryPhotoModal}
+                disabled={galleryUploading}
+                activeOpacity={0.8}
+              >
+                <View style={styles.galleryAddCellContent}>
+                  {galleryUploading ? (
+                    <ActivityIndicator size="small" color="#6C26CB" />
+                  ) : (
+                    <Ionicons name="add" size={32} color="#6C26CB" />
+                  )}
+                </View>
               </TouchableOpacity>
             </View>
           </View>
@@ -777,6 +950,34 @@ export function ProfileCompletionScreen() {
       </View>
 
       <View style={[styles.footerWave, { paddingBottom: 48 + insets.bottom }]}>
+        <PhotoSourceModal
+          visible={showPhotoSourceModal}
+          onClose={() => setShowPhotoSourceModal(false)}
+          onPickGallery={() => runPicker('gallery')}
+          onPickCamera={() => runPicker('camera')}
+          title={t('photoSourceTitle')}
+          subtitle={t('photoSourceSubtitle')}
+          galleryLabel={t('photoSourceGallery')}
+          cameraLabel={t('photoSourceCamera')}
+          cancelLabel={t('cancelEdit')}
+        />
+        <PhotoSourceModal
+          visible={showGalleryPhotoModal}
+          onClose={() => setShowGalleryPhotoModal(false)}
+          onPickGallery={() => {
+            setShowGalleryPhotoModal(false);
+            runPickerForGallery('gallery');
+          }}
+          onPickCamera={() => {
+            setShowGalleryPhotoModal(false);
+            runPickerForGallery('camera');
+          }}
+          title={t('photoSourceTitle')}
+          subtitle={t('gallerySubtitle')}
+          galleryLabel={t('photoSourceGallery')}
+          cameraLabel={t('photoSourceCamera')}
+          cancelLabel={t('cancelEdit')}
+        />
         {isLastStep ? (
           <TouchableOpacity
             style={[styles.continueBtn, (!canGoNext || saving) && styles.continueBtnDisabled]}

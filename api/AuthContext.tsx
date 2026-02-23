@@ -22,7 +22,9 @@ export type AuthUser = {
   categories?: string[];
   profileComplete?: boolean;
   /** 'phone' = login por telefone (não pedir telefone no cadastro); 'social' = login por email (não pedir email) */
-  signupVia?: 'phone' | 'social';
+  signupVia?: 'phone' | 'social' | 'email';
+  /** Galeria de fotos (vários ângulos) */
+  galleryPhotos?: { id: string; url: string }[];
 };
 
 type AuthContextValue = {
@@ -31,6 +33,8 @@ type AuthContextValue = {
   loading: boolean;
   profileComplete: boolean;
   refreshProfile: () => Promise<void>;
+  /** Busca o perfil e atualiza o estado marcando como completo (uso após concluir cadastro). */
+  refreshProfileAndMarkComplete: () => Promise<void>;
   /** Marca o perfil como completo no estado local (ex.: após salvar com sucesso). */
   markProfileComplete: () => void;
   loginWithSocial: (
@@ -76,6 +80,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         categories: profile.categories,
         profileComplete: profile.profileComplete,
         signupVia: profile.signupVia,
+        galleryPhotos: profile.galleryPhotos,
+      });
+    } catch {
+      // keep current user
+    }
+  }, [token]);
+
+  /** Busca o perfil e atualiza o user com profileComplete: true em uma única atualização (evita sobrescrever com estado antigo). */
+  const refreshProfileAndMarkComplete = useCallback(async () => {
+    const t = token;
+    if (!t) return;
+    try {
+      const profile = await getProfile(t);
+      setUser({
+        email: profile.email,
+        nome: profile.nome,
+        role: profile.role,
+        phone: profile.phone ?? undefined,
+        photoUrl: profile.photoUrl ?? undefined,
+        birthDate: profile.birthDate ?? undefined,
+        gender: profile.gender ?? undefined,
+        genderLookingFor: profile.genderLookingFor ?? undefined,
+        categories: profile.categories,
+        profileComplete: true,
+        signupVia: profile.signupVia,
+        galleryPhotos: profile.galleryPhotos,
       });
     } catch {
       // keep current user
@@ -111,6 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         genderLookingFor: result.genderLookingFor ?? undefined,
         categories: result.categories,
         profileComplete: false,
+        signupVia: 'social', // entrou por email/social → não pedir email no cadastro
       });
       try {
         const profile = await getProfile(result.access_token);
@@ -125,10 +156,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           genderLookingFor: profile.genderLookingFor ?? result.genderLookingFor ?? undefined,
           categories: profile.categories ?? result.categories,
           profileComplete: profile.profileComplete,
-          signupVia: profile.signupVia,
+          signupVia: profile.signupVia ?? 'social',
+          galleryPhotos: profile.galleryPhotos,
         });
       } catch {
-        // mantém nome/foto do result já definidos acima
+        // mantém nome/foto/signupVia já definidos acima (signupVia 'social' evita tela de email)
       }
     },
     [],
@@ -148,6 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       genderLookingFor: result.genderLookingFor ?? undefined,
       categories: result.categories,
       profileComplete: false,
+      signupVia: 'phone', // entrou por telefone → não pedir telefone no cadastro
     });
     try {
       const profile = await getProfile(result.access_token);
@@ -162,10 +195,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         genderLookingFor: profile.genderLookingFor ?? undefined,
         categories: profile.categories,
         profileComplete: profile.profileComplete,
-        signupVia: profile.signupVia,
+        signupVia: profile.signupVia ?? 'phone',
+        galleryPhotos: profile.galleryPhotos,
       });
     } catch {
-      // mantém dados do result
+      // mantém dados e signupVia já definidos acima
     }
   }, []);
 
@@ -199,6 +233,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           categories: profile.categories,
           profileComplete: profile.profileComplete,
           signupVia: profile.signupVia,
+          galleryPhotos: profile.galleryPhotos,
         });
       } catch {
         if (!cancelled) {
@@ -230,6 +265,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     profileComplete: user?.profileComplete ?? false,
     refreshProfile,
+    refreshProfileAndMarkComplete,
     markProfileComplete,
     loginWithSocial,
     loginWithPhone,

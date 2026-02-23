@@ -126,7 +126,8 @@ export async function getProfile(accessToken: string): Promise<{
   genderLookingFor?: string | null;
   categories?: string[];
   profileComplete?: boolean;
-  signupVia?: 'phone' | 'social';
+  signupVia?: 'phone' | 'social' | 'email';
+  galleryPhotos?: { id: string; url: string }[];
 }> {
   const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -137,6 +138,47 @@ export async function getProfile(accessToken: string): Promise<{
     console.log('[API] GET /auth/me photoUrl:', data?.photoUrl ? data.photoUrl.substring(0, 50) + '...' : '(vazio)', 'profileComplete:', data?.profileComplete);
   }
   return data;
+}
+
+export type GalleryPhotoItem = { id: string; url: string };
+
+/** Adiciona uma foto na galeria do usuário (vários ângulos). Use a URL retornada por uploadProfilePhoto. */
+export async function addGalleryPhoto(
+  accessToken: string,
+  photoUrl: string,
+): Promise<{ id: string }> {
+  const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/profile/gallery-photos`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ photoUrl: photoUrl.trim() }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Falha ao adicionar foto na galeria');
+  }
+  return res.json();
+}
+
+/** Remove uma foto da galeria do usuário. */
+export async function removeGalleryPhoto(
+  accessToken: string,
+  photoId: string,
+): Promise<{ success: boolean }> {
+  const res = await fetchWithNetworkHint(
+    `${API_BASE_URL}/auth/profile/gallery-photos/${encodeURIComponent(photoId)}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Falha ao remover foto');
+  }
+  return res.json();
 }
 
 /** Verifica se o e-mail está disponível (não usado por outra conta). Requer token. */

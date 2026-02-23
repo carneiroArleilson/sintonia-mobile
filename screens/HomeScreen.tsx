@@ -23,6 +23,8 @@ import {
   checkEmailAvailable,
   uploadProfilePhoto,
   updateProfilePhotoUrl,
+  addGalleryPhoto,
+  removeGalleryPhoto,
   type CategoryItem,
 } from '../api/client';
 import {
@@ -34,6 +36,7 @@ import {
   getFullPhoneDigits,
 } from '../utils/phone';
 import { styles } from './HomeScreen.styles';
+import { PhotoSourceModal } from '../components/PhotoSourceModal';
 import * as ImagePicker from 'expo-image-picker';
 
 const PLACEHOLDER_COLOR = '#9CA3AF';
@@ -160,6 +163,9 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
   const [saving, setSaving] = useState(false);
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [showPhotoSourceModal, setShowPhotoSourceModal] = useState(false);
+  const [showGalleryPhotoModal, setShowGalleryPhotoModal] = useState(false);
+  const [galleryUploading, setGalleryUploading] = useState(false);
 
   useEffect(() => {
     refreshProfile();
@@ -194,52 +200,182 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
     );
   }, []);
 
-  const pickAndUploadPhoto = useCallback(async () => {
-    if (!token || photoUploading) return;
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        t('profilePhoto'),
-        'Para alterar a foto, permita o acesso à galeria nas configurações do dispositivo.',
-      );
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-    const asset = result.assets[0];
-    setLocalPhotoUri(asset.uri);
-    setPhotoUploading(true);
-    try {
-      const { url } = await uploadProfilePhoto(token, {
-        uri: asset.uri,
-        type: asset.mimeType || 'image/jpeg',
-        name: 'photo.jpg',
-      });
-      setLocalPhotoUri(url);
-      try {
-        await updateProfilePhotoUrl(token, url);
-        await refreshProfile();
-        setLocalPhotoUri(null);
-      } catch (updateErr) {
-        const updateMsg = updateErr instanceof Error ? updateErr.message : '';
-        if (updateMsg.includes('User not found') || updateMsg.includes('not found')) {
-          await refreshProfile();
-        } else {
-          throw updateErr;
+  const runPicker = useCallback(
+    async (source: 'gallery' | 'camera') => {
+      if (!token || photoUploading) return;
+      if (source === 'gallery') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            t('profilePhoto'),
+            'Para alterar a foto, permita o acesso à galeria nas configurações do dispositivo.',
+          );
+          return;
+        }
+      } else {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            t('profilePhoto'),
+            'Para tirar uma foto, permita o acesso à câmera nas configurações do dispositivo.',
+          );
+          return;
         }
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Falha ao enviar foto';
-      Alert.alert('Erro', msg);
-    } finally {
-      setPhotoUploading(false);
-    }
-  }, [token, photoUploading, refreshProfile, t]);
+      const launchOptions: ImagePicker.ImagePickerOptions = {
+        mediaTypes: 'images',
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      };
+      const result =
+        source === 'gallery'
+          ? await ImagePicker.launchImageLibraryAsync(launchOptions)
+          : await ImagePicker.launchCameraAsync(launchOptions);
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      setLocalPhotoUri(asset.uri);
+      setPhotoUploading(true);
+      try {
+        const { url } = await uploadProfilePhoto(token, {
+          uri: asset.uri,
+          type: asset.mimeType || 'image/jpeg',
+          name: 'photo.jpg',
+        });
+        setLocalPhotoUri(url);
+        try {
+          await updateProfilePhotoUrl(token, url);
+          await refreshProfile();
+          setLocalPhotoUri(null);
+        } catch (updateErr) {
+          const updateMsg = updateErr instanceof Error ? updateErr.message : '';
+          if (updateMsg.includes('User not found') || updateMsg.includes('not found')) {
+            await refreshProfile();
+          } else {
+            throw updateErr;
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Falha ao enviar foto';
+        Alert.alert('Erro', msg);
+      } finally {
+        setPhotoUploading(false);
+      }
+    },
+    [token, photoUploading, refreshProfile, t],
+  );
+
+  const openPhotoSourceModal = useCallback(() => {
+    if (!token || photoUploading) return;
+    setShowPhotoSourceModal(true);
+  }, [token, photoUploading]);
+
+  const runPickerForGallery = useCallback(
+    async (source: 'gallery' | 'camera') => {
+      if (!token || galleryUploading) return;
+      if (source === 'gallery') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            t('profilePhoto'),
+            'Para adicionar uma foto, permita o acesso à galeria nas configurações do dispositivo.',
+          );
+          return;
+        }
+      } else {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            t('profilePhoto'),
+            'Para tirar uma foto, permita o acesso à câmera nas configurações do dispositivo.',
+          );
+          return;
+        }
+      }
+      if (source === 'gallery') {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: 'images',
+          allowsMultipleSelection: true,
+          selectionLimit: 20,
+          quality: 0.8,
+        });
+        if (result.canceled || !result.assets?.length) return;
+        setGalleryUploading(true);
+        try {
+          for (const asset of result.assets) {
+            if (!asset.uri) continue;
+            const { url } = await uploadProfilePhoto(token, {
+              uri: asset.uri,
+              type: asset.mimeType || 'image/jpeg',
+              name: 'photo.jpg',
+            });
+            await addGalleryPhoto(token, url);
+          }
+          if (result.assets.length > 0) await refreshProfile();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'Falha ao enviar foto';
+          Alert.alert('Erro', msg);
+        } finally {
+          setGalleryUploading(false);
+        }
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: 'images',
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      setGalleryUploading(true);
+      try {
+        const { url } = await uploadProfilePhoto(token, {
+          uri: asset.uri,
+          type: asset.mimeType || 'image/jpeg',
+          name: 'photo.jpg',
+        });
+        await addGalleryPhoto(token, url);
+        await refreshProfile();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Falha ao enviar foto';
+        Alert.alert('Erro', msg);
+      } finally {
+        setGalleryUploading(false);
+      }
+    },
+    [token, galleryUploading, refreshProfile, t],
+  );
+
+  const openGalleryPhotoModal = useCallback(() => {
+    if (!token || galleryUploading) return;
+    setShowGalleryPhotoModal(true);
+  }, [token, galleryUploading]);
+
+  const handleRemoveGalleryPhoto = useCallback(
+    (photoId: string) => {
+      Alert.alert(
+        t('galleryRemove'),
+        t('galleryRemoveConfirm'),
+        [
+          { text: t('cancelEdit'), style: 'cancel' },
+          {
+            text: t('galleryRemove'),
+            style: 'destructive',
+            onPress: async () => {
+              if (!token) return;
+              try {
+                await removeGalleryPhoto(token, photoId);
+                await refreshProfile();
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : 'Falha ao remover';
+                Alert.alert('Erro', msg);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [token, refreshProfile, t],
+  );
 
   const handleSave = useCallback(async () => {
     if (!token) return;
@@ -377,11 +513,44 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
                 </View>
                 <TouchableOpacity
                   style={styles.editPhotoButton}
-                  onPress={pickAndUploadPhoto}
+                  onPress={openPhotoSourceModal}
                   disabled={photoUploading}
                   activeOpacity={0.8}
                 >
                   <Text style={styles.editPhotoButtonText}>{t('editPhotoChange')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>{t('galleryTitle')}</Text>
+              <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 8 }}>{t('gallerySubtitle')}</Text>
+              <View style={styles.galleryGrid}>
+                {(user?.galleryPhotos ?? []).map((photo) => (
+                  <View key={photo.id} style={styles.galleryItem}>
+                    <Image source={{ uri: photo.url }} style={styles.galleryItemImage} resizeMode="cover" />
+                    <TouchableOpacity
+                      style={styles.galleryRemoveBtn}
+                      onPress={() => handleRemoveGalleryPhoto(photo.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="close" size={18} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <TouchableOpacity
+                  style={styles.galleryAddCell}
+                  onPress={openGalleryPhotoModal}
+                  disabled={galleryUploading}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.galleryAddCellContent}>
+                    {galleryUploading ? (
+                      <ActivityIndicator size="small" color="#6C26CB" />
+                    ) : (
+                      <Ionicons name="add" size={32} color="#6C26CB" />
+                    )}
+                  </View>
                 </TouchableOpacity>
               </View>
             </View>
@@ -655,6 +824,34 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
             </View>
           </ScrollView>
         </View>
+        <PhotoSourceModal
+          visible={showPhotoSourceModal}
+          onClose={() => setShowPhotoSourceModal(false)}
+          onPickGallery={() => runPicker('gallery')}
+          onPickCamera={() => runPicker('camera')}
+          title={t('photoSourceTitle')}
+          subtitle={t('photoSourceSubtitle')}
+          galleryLabel={t('photoSourceGallery')}
+          cameraLabel={t('photoSourceCamera')}
+          cancelLabel={t('cancelEdit')}
+        />
+        <PhotoSourceModal
+          visible={showGalleryPhotoModal}
+          onClose={() => setShowGalleryPhotoModal(false)}
+          onPickGallery={() => {
+            setShowGalleryPhotoModal(false);
+            runPickerForGallery('gallery');
+          }}
+          onPickCamera={() => {
+            setShowGalleryPhotoModal(false);
+            runPickerForGallery('camera');
+          }}
+          title={t('photoSourceTitle')}
+          subtitle={t('gallerySubtitle')}
+          galleryLabel={t('photoSourceGallery')}
+          cameraLabel={t('photoSourceCamera')}
+          cancelLabel={t('cancelEdit')}
+        />
       </KeyboardAvoidingView>
     );
   }
@@ -676,11 +873,71 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
       >
         <Text style={styles.title}>{t('homeProfileTitle')}</Text>
 
-        {user?.photoUrl ? (
-          <View style={styles.photoWrap}>
-            <Image source={{ uri: user.photoUrl }} style={styles.photo} resizeMode="cover" />
+        {user?.photoUrl || localPhotoUri ? (
+          <TouchableOpacity
+            style={styles.photoWrap}
+            onPress={openPhotoSourceModal}
+            disabled={photoUploading}
+            activeOpacity={0.9}
+          >
+            {photoUploading ? (
+              <View style={[styles.photo, styles.photoPlaceholder]}>
+                <ActivityIndicator size="large" color="#6C26CB" />
+              </View>
+            ) : (
+              <Image
+                source={{ uri: localPhotoUri || user?.photoUrl || '' }}
+                style={styles.photo}
+                resizeMode="cover"
+              />
+            )}
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.photoWrap}
+            onPress={openPhotoSourceModal}
+            disabled={photoUploading}
+            activeOpacity={0.9}
+          >
+            <View style={[styles.photo, styles.photoPlaceholder]}>
+              <Ionicons name="camera-outline" size={40} color="#6C26CB" style={{ marginBottom: 6 }} />
+              <Text style={styles.editPhotoButtonText}>{t('profilePhotoAdd')}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        <View style={styles.gallerySection}>
+          <Text style={styles.gallerySectionTitle}>{t('galleryTitle')}</Text>
+          <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 12 }}>{t('gallerySubtitle')}</Text>
+          <View style={styles.galleryGrid}>
+            {(user?.galleryPhotos ?? []).map((photo) => (
+              <View key={photo.id} style={styles.galleryItem}>
+                <Image source={{ uri: photo.url }} style={styles.galleryItemImage} resizeMode="cover" />
+                <TouchableOpacity
+                  style={styles.galleryRemoveBtn}
+                  onPress={() => handleRemoveGalleryPhoto(photo.id)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="close" size={18} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TouchableOpacity
+              style={styles.galleryAddCell}
+              onPress={openGalleryPhotoModal}
+              disabled={galleryUploading}
+              activeOpacity={0.8}
+            >
+              <View style={styles.galleryAddCellContent}>
+                {galleryUploading ? (
+                  <ActivityIndicator size="small" color="#6C26CB" />
+                ) : (
+                  <Ionicons name="add" size={32} color="#6C26CB" />
+                )}
+              </View>
+            </TouchableOpacity>
           </View>
-        ) : null}
+        </View>
 
         <View style={styles.card}>
           <DataRow label={t('profileName')} value={user?.nome} />
@@ -729,6 +986,34 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
           <Text style={styles.logoutButtonText}>{t('logout')}</Text>
         </TouchableOpacity>
       </ScrollView>
+      <PhotoSourceModal
+        visible={showPhotoSourceModal}
+        onClose={() => setShowPhotoSourceModal(false)}
+        onPickGallery={() => runPicker('gallery')}
+        onPickCamera={() => runPicker('camera')}
+        title={t('photoSourceTitle')}
+        subtitle={t('photoSourceSubtitle')}
+        galleryLabel={t('photoSourceGallery')}
+        cameraLabel={t('photoSourceCamera')}
+        cancelLabel={t('cancelEdit')}
+      />
+      <PhotoSourceModal
+        visible={showGalleryPhotoModal}
+        onClose={() => setShowGalleryPhotoModal(false)}
+        onPickGallery={() => {
+          setShowGalleryPhotoModal(false);
+          runPickerForGallery('gallery');
+        }}
+        onPickCamera={() => {
+          setShowGalleryPhotoModal(false);
+          runPickerForGallery('camera');
+        }}
+        title={t('photoSourceTitle')}
+        subtitle={t('gallerySubtitle')}
+        galleryLabel={t('photoSourceGallery')}
+        cameraLabel={t('photoSourceCamera')}
+        cancelLabel={t('cancelEdit')}
+      />
     </View>
   );
 }

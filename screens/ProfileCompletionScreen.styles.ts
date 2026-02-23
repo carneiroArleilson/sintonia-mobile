@@ -302,6 +302,51 @@ export const styles = StyleSheet.create({
     height: 180,
     borderRadius: 90,
   },
+  /* Galeria: grid de fotos + célula adicionar */
+  galleryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  galleryItem: {
+    width: '30%',
+    aspectRatio: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  galleryItemImage: {
+    width: '100%',
+    height: '100%',
+  },
+  galleryAddCell: {
+    width: '30%',
+    aspectRatio: 1,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: BORDER,
+    borderStyle: 'dashed',
+    backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  galleryAddCellContent: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  galleryRemoveBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   /* Rodapé: faixa roxa clara com “onda” no topo, botão Continuar e dots */
   footerWave: {
     backgroundColor: PURPLE_LIGHT,
