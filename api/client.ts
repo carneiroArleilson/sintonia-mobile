@@ -181,6 +181,26 @@ export async function removeGalleryPhoto(
   return res.json();
 }
 
+/** Perfil retornado pela listagem de discovery (tela de match). */
+export type DiscoveryProfile = {
+  id: string;
+  userId: string;
+  nome: string;
+  photoUrl: string;
+  birthDate: string;
+  categories: string[];
+  galleryPhotos?: { id: string; url: string }[];
+};
+
+/** Lista perfis para discovery (tela de match). Requer token app_user. */
+export async function getDiscoveryProfiles(accessToken: string): Promise<DiscoveryProfile[]> {
+  const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/discovery`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error('Falha ao carregar perfis');
+  return res.json();
+}
+
 /** Verifica se o e-mail está disponível (não usado por outra conta). Requer token. */
 export async function checkEmailAvailable(
   accessToken: string,

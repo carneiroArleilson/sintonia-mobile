@@ -105,6 +105,11 @@ export const translations: Record<Lang, Record<string, string>> = {
     profileCompleteRequiredMessage: 'Preencha nome, e-mail, telefone, data de nascimento, gênero, interesse e categorias para continuar.',
     profileSavedTitle: 'Perfil salvo',
     profileSavedRefreshFail: 'Se a tela não atualizar, feche e abra o app novamente.',
+    discoveryNoProfiles: 'Nenhum perfil no momento. Volte mais tarde!',
+    discoveryReject: 'Negar',
+    discoveryMatch: 'Dar match',
+    discoveryAge: 'Idade',
+    discoveryPreferences: 'Interesses',
   },
   en: {
     appName: 'Sintonia',
@@ -205,6 +210,11 @@ export const translations: Record<Lang, Record<string, string>> = {
     profileCompleteRequiredMessage: 'Please fill in name, email, phone, birth date, gender, interest and categories to continue.',
     profileSavedTitle: 'Profile saved',
     profileSavedRefreshFail: 'If the screen does not update, close and reopen the app.',
+    discoveryNoProfiles: 'No profiles right now. Come back later!',
+    discoveryReject: 'Reject',
+    discoveryMatch: 'Match',
+    discoveryAge: 'Age',
+    discoveryPreferences: 'Interests',
   },
   es: {
     appName: 'Sintonia',
@@ -305,6 +315,11 @@ export const translations: Record<Lang, Record<string, string>> = {
     profileCompleteRequiredMessage: 'Completa nombre, correo, teléfono, fecha de nacimiento, género, interés y categorías para continuar.',
     profileSavedTitle: 'Perfil guardado',
     profileSavedRefreshFail: 'Si la pantalla no se actualiza, cierra y abre la app de nuevo.',
+    discoveryNoProfiles: 'Ningún perfil por ahora. ¡Vuelve más tarde!',
+    discoveryReject: 'Rechazar',
+    discoveryMatch: 'Dar match',
+    discoveryAge: 'Edad',
+    discoveryPreferences: 'Intereses',
   },
 };
 
