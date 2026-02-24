@@ -13,13 +13,14 @@ import {
   TextInput,
   FlatList,
 } from 'react-native';
+import Slider from '@react-native-community/slider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useTranslation } from '../i18n/LanguageProvider';
 import { useAuth } from '../api/AuthContext';
-import { getDiscoveryProfiles, getCategories, updateProfileLocation, type DiscoveryProfile } from '../api/client';
+import { getDiscoveryProfiles, getCategories, getProfile, updateProfileLocation, saveDiscoveryFilters, type DiscoveryProfile, type DiscoveryFilters, type CategoryItem } from '../api/client';
 import { CITIES, type City } from '../data/cities';
 import { styles as st } from './MatchScreen.styles';
 
@@ -29,6 +30,12 @@ const LOCATION_LAST_LNG_KEY = '@sintonia_last_lng';
 const LOCATION_LAST_SENT_AT_KEY = '@sintonia_last_location_sent_at';
 const LOCATION_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
 const LOCATION_MIN_DISTANCE_M = 1000; // 1 km
+// Valores do slider de raio: índice 0 = "Qualquer" (null), 1..6 = 5, 10, 25, 50, 100, 200 km
+const RADIUS_SLIDER_KM = [null, 5, 10, 25, 50, 100, 200] as const;
+const RADIUS_SLIDER_MIN = 0;
+const RADIUS_SLIDER_MAX = RADIUS_SLIDER_KM.length - 1;
+const DEFAULT_AGE_MIN = 18;
+const DEFAULT_AGE_MAX = 99;
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3;
@@ -75,6 +82,13 @@ export function MatchScreen() {
   const [locationPromptVisible, setLocationPromptVisible] = useState(true);
   const [showCityPicker, setShowCityPicker] = useState(false);
   const [citySearch, setCitySearch] = useState('');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [categoriesList, setCategoriesList] = useState<CategoryItem[]>([]);
+  const [filterAgeMin, setFilterAgeMin] = useState(DEFAULT_AGE_MIN);
+  const [filterAgeMax, setFilterAgeMax] = useState(DEFAULT_AGE_MAX);
+  const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>([]);
+  const [filterRadiusKm, setFilterRadiusKm] = useState<number | null>(null);
+  const [filtersLoadedFromApi, setFiltersLoadedFromApi] = useState(false);
 
   const filteredCities = useMemo(() => {
     const q = citySearch.trim().toLowerCase();
@@ -102,16 +116,50 @@ export function MatchScreen() {
     }
   }, [currentIndex, scaleFront]);
 
+  const discoveryFilters = useMemo((): DiscoveryFilters => {
+    const f: DiscoveryFilters = {};
+    if (filterAgeMin > DEFAULT_AGE_MIN || filterAgeMax < DEFAULT_AGE_MAX) {
+      f.ageMin = filterAgeMin;
+      f.ageMax = filterAgeMax;
+    }
+    if (filterCategoryIds.length > 0) f.categories = [...filterCategoryIds];
+    if (filterRadiusKm != null && filterRadiusKm > 0) f.radiusKm = filterRadiusKm;
+    return f;
+  }, [filterAgeMin, filterAgeMax, filterCategoryIds, filterRadiusKm]);
+
+  // Carrega filtros salvos no banco (GET /auth/me retorna discoveryFilters)
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    getProfile(token)
+      .then((profile) => {
+        if (cancelled) return;
+        if (profile.discoveryFilters) {
+          const f = profile.discoveryFilters;
+          if (f.ageMin != null) setFilterAgeMin(f.ageMin);
+          if (f.ageMax != null) setFilterAgeMax(f.ageMax);
+          if (Array.isArray(f.categoryIds) && f.categoryIds.length > 0) setFilterCategoryIds(f.categoryIds);
+          if (f.radiusKm !== undefined) setFilterRadiusKm(f.radiusKm ?? null);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setFiltersLoadedFromApi(true);
+      });
+    return () => { cancelled = true; };
+  }, [token]);
+
   const loadData = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     try {
       const [list, categories] = await Promise.all([
-        getDiscoveryProfiles(token),
+        getDiscoveryProfiles(token, Object.keys(discoveryFilters).length > 0 ? discoveryFilters : undefined),
         getCategories('pt'),
       ]);
       setProfiles(list);
       setCurrentIndex(0);
+      setCategoriesList(categories);
       const map: Record<string, string> = {};
       categories.forEach((c) => { map[c.id] = c.label; });
       setCategoryLabels(map);
@@ -120,11 +168,11 @@ export function MatchScreen() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, discoveryFilters]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (token && filtersLoadedFromApi) loadData();
+  }, [token, filtersLoadedFromApi, loadData]);
 
   // Carrega escolha de localização salva; se não definida, mostra o prompt (não pede permissão na primeira tela).
   useEffect(() => {
@@ -154,7 +202,6 @@ export function MatchScreen() {
       }
       const loc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
-        mayShowUserSettings: false,
       });
       const { latitude, longitude } = loc.coords;
       await updateProfileLocation(token!, latitude, longitude);
@@ -175,6 +222,29 @@ export function MatchScreen() {
   const handleOpenCityPicker = useCallback(() => {
     setShowCityPicker(true);
   }, []);
+
+  const toggleFilterCategory = useCallback((id: string) => {
+    setFilterCategoryIds((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
+    );
+  }, []);
+
+  const handleApplyFilter = useCallback(async () => {
+    if (!token) return;
+    setShowFilterModal(false);
+    try {
+      await saveDiscoveryFilters(token, {
+        ageMin: filterAgeMin,
+        ageMax: filterAgeMax,
+        categoryIds: filterCategoryIds,
+        radiusKm: filterRadiusKm,
+      });
+      loadData();
+    } catch (e) {
+      if (__DEV__) console.warn('[MatchScreen] Falha ao salvar filtros:', e);
+      loadData();
+    }
+  }, [token, filterAgeMin, filterAgeMax, filterCategoryIds, filterRadiusKm, loadData]);
 
   const handleSelectCity = useCallback(
     async (city: City) => {
@@ -207,7 +277,6 @@ export function MatchScreen() {
         if (cancelled || status !== Location.PermissionStatus.GRANTED) return;
         const loc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
-          mayShowUserSettings: false,
         });
         if (cancelled) return;
         const lat = loc.coords.latitude;
@@ -312,35 +381,8 @@ export function MatchScreen() {
   const next = profiles[currentIndex + 1];
   const noMoreCards = !loading && profiles.length > 0 && current == null;
 
-  if (loading) {
-    return (
-      <View style={st.container}>
-        <View style={st.header}>
-          <TouchableOpacity style={st.headerFilterBtn} activeOpacity={0.7}>
-            <Ionicons name="options-outline" size={26} color="#6C26CB" />
-          </TouchableOpacity>
-        </View>
-        <View style={st.loadingWrap}>
-          <ActivityIndicator size="large" color="#6C26CB" />
-        </View>
-      </View>
-    );
-  }
-
-  if (!profiles.length || noMoreCards) {
-    return (
-      <View style={st.container}>
-        <View style={st.header}>
-          <TouchableOpacity style={st.headerFilterBtn} activeOpacity={0.7}>
-            <Ionicons name="options-outline" size={26} color="#6C26CB" />
-          </TouchableOpacity>
-        </View>
-        <View style={st.emptyState}>
-          <Text style={st.emptyStateText}>{t('discoveryNoProfiles')}</Text>
-        </View>
-      </View>
-    );
-  }
+  const showEmptyState = !loading && (profiles.length === 0 || noMoreCards);
+  const showCards = !loading && profiles.length > 0 && !noMoreCards;
 
   const rotateInterpolate = pan.x.interpolate({
     inputRange: [-SW, 0, SW],
@@ -350,6 +392,21 @@ export function MatchScreen() {
 
   return (
     <View style={st.container}>
+      <View style={st.header}>
+        <TouchableOpacity style={st.headerFilterBtn} onPress={() => setShowFilterModal(true)} activeOpacity={0.7}>
+          <Ionicons name="options-outline" size={26} color="#6C26CB" />
+        </TouchableOpacity>
+      </View>
+      {loading && (
+        <View style={st.loadingWrap}>
+          <ActivityIndicator size="large" color="#6C26CB" />
+        </View>
+      )}
+      {showEmptyState && (
+        <View style={st.emptyState}>
+          <Text style={st.emptyStateText}>{t('discoveryNoProfiles')}</Text>
+        </View>
+      )}
       {locationPromptVisible && (
         <View style={st.locationPromptOverlay}>
           <View style={st.locationPromptCard}>
@@ -410,11 +467,84 @@ export function MatchScreen() {
           </View>
         </View>
       </Modal>
-      <View style={st.header}>
-        <TouchableOpacity style={st.headerFilterBtn} activeOpacity={0.7}>
-          <Ionicons name="options-outline" size={26} color="#6C26CB" />
-        </TouchableOpacity>
-      </View>
+
+      <Modal visible={showFilterModal} animationType="slide" transparent onRequestClose={() => setShowFilterModal(false)}>
+        <View style={st.filterModalOverlay}>
+          <View style={st.filterModalCard}>
+            <View style={st.filterModalHeader}>
+              <Text style={st.filterModalTitle}>{t('filterTitle')}</Text>
+              <TouchableOpacity onPress={() => setShowFilterModal(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Ionicons name="close" size={28} color="#1F2937" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={st.filterModalScroll} showsVerticalScrollIndicator={false}>
+              <Text style={st.filterSectionLabel}>{t('filterAgeRange')}</Text>
+              <View style={st.filterAgeRow}>
+                <View style={st.filterAgeInputWrap}>
+                  <Text style={st.filterAgeHint}>{t('filterAgeMin')}</Text>
+                  <TextInput
+                    style={st.filterAgeInput}
+                    value={String(filterAgeMin)}
+                    onChangeText={(v) => setFilterAgeMin(Math.min(99, Math.max(18, parseInt(v, 10) || 18)))}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                </View>
+                <Text style={st.filterAgeDash}>–</Text>
+                <View style={st.filterAgeInputWrap}>
+                  <Text style={st.filterAgeHint}>{t('filterAgeMax')}</Text>
+                  <TextInput
+                    style={st.filterAgeInput}
+                    value={String(filterAgeMax)}
+                    onChangeText={(v) => setFilterAgeMax(Math.min(99, Math.max(18, parseInt(v, 10) || 99)))}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                </View>
+              </View>
+
+              <Text style={st.filterSectionLabel}>{t('filterInterests')}</Text>
+              <View style={st.filterTagsWrap}>
+                {categoriesList.map((c) => (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[st.filterTag, filterCategoryIds.includes(c.id) && st.filterTagSelected]}
+                    onPress={() => toggleFilterCategory(c.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[st.filterTagText, filterCategoryIds.includes(c.id) && st.filterTagTextSelected]}>
+                      {c.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={st.filterSectionLabel}>{t('filterRadius')}</Text>
+              <View style={st['filterRadiusSliderWrap']}>
+                <Text style={st['filterRadiusValue']}>
+                  {filterRadiusKm == null ? t('filterRadiusAny') : `${filterRadiusKm} km`}
+                </Text>
+                <Slider
+                  style={st['filterRadiusSlider']}
+                  minimumValue={RADIUS_SLIDER_MIN}
+                  maximumValue={RADIUS_SLIDER_MAX}
+                  step={1}
+                  value={Math.max(0, RADIUS_SLIDER_KM.findIndex((v) => v === filterRadiusKm))}
+                  onValueChange={(idx) => setFilterRadiusKm(RADIUS_SLIDER_KM[Math.round(idx)] ?? null)}
+                  minimumTrackTintColor="#6C26CB"
+                  maximumTrackTintColor="#E5E7EB"
+                  thumbTintColor="#6C26CB"
+                />
+              </View>
+            </ScrollView>
+            <TouchableOpacity style={st.filterApplyBtn} onPress={handleApplyFilter} activeOpacity={0.8}>
+              <Text style={st.filterApplyBtnText}>{t('filterApply')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+      {showCards && (
+        <>
       <View style={st.cardStack}>
         {/* Card de trás (próximo perfil) */}
         {next != null && (
@@ -527,6 +657,8 @@ export function MatchScreen() {
             <Text style={{ fontSize: 32, color: '#E94B6C' }}>♥</Text>
           </TouchableOpacity>
         </View>
+      )}
+        </>
       )}
     </View>
   );

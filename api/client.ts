@@ -116,6 +116,13 @@ export type AppProfile = {
   bio?: string | null;
 };
 
+export type DiscoveryFiltersProfile = {
+  ageMin?: number;
+  ageMax?: number;
+  categoryIds?: string[];
+  radiusKm?: number | null;
+};
+
 export async function getProfile(accessToken: string): Promise<{
   role: string;
   email: string;
@@ -130,6 +137,7 @@ export async function getProfile(accessToken: string): Promise<{
   signupVia?: 'phone' | 'social' | 'email';
   galleryPhotos?: { id: string; url: string }[];
   bio?: string | null;
+  discoveryFilters?: DiscoveryFiltersProfile;
 }> {
   const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -196,12 +204,56 @@ export type DiscoveryProfile = {
   distanceMeters?: number | null;
 };
 
-/** Lista perfis para discovery (tela de match). Requer token app_user. */
-export async function getDiscoveryProfiles(accessToken: string): Promise<DiscoveryProfile[]> {
-  const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/discovery`, {
+export type DiscoveryFilters = {
+  ageMin?: number;
+  ageMax?: number;
+  categories?: string[];
+  radiusKm?: number;
+};
+
+/** Lista perfis para discovery (tela de match). Requer token app_user. Filtros opcionais. */
+export async function getDiscoveryProfiles(
+  accessToken: string,
+  filters?: DiscoveryFilters,
+): Promise<DiscoveryProfile[]> {
+  const params = new URLSearchParams();
+  if (filters?.ageMin != null) params.set('ageMin', String(filters.ageMin));
+  if (filters?.ageMax != null) params.set('ageMax', String(filters.ageMax));
+  if (filters?.categories != null && filters.categories.length > 0) {
+    params.set('categories', filters.categories.join(','));
+  }
+  if (filters?.radiusKm != null && filters.radiusKm > 0) params.set('radiusKm', String(filters.radiusKm));
+  const qs = params.toString();
+  const url = qs ? `${API_BASE_URL}/auth/discovery?${qs}` : `${API_BASE_URL}/auth/discovery`;
+  const res = await fetchWithNetworkHint(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error('Falha ao carregar perfis');
+  return res.json();
+}
+
+/** Salva os filtros de discovery no servidor (idade, interesses, raio). */
+export async function saveDiscoveryFilters(
+  accessToken: string,
+  filters: { ageMin?: number; ageMax?: number; categoryIds?: string[]; radiusKm?: number | null },
+): Promise<{ success: boolean }> {
+  const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/profile/discovery-filters`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      ageMin: filters.ageMin,
+      ageMax: filters.ageMax,
+      categoryIds: filters.categoryIds,
+      radiusKm: filters.radiusKm,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Falha ao salvar filtros');
+  }
   return res.json();
 }
 
