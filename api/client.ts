@@ -232,6 +232,46 @@ export async function getDiscoveryProfiles(
   return res.json();
 }
 
+/** Registra like em um perfil (nunca mais aparece na sua lista). */
+export async function postDiscoveryLike(
+  accessToken: string,
+  targetAppUserId: string,
+): Promise<{ success: boolean }> {
+  const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/discovery/like`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ targetAppUserId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Falha ao registrar like');
+  }
+  return res.json();
+}
+
+/** Registra dislike em um perfil (não aparece por 30 dias). */
+export async function postDiscoveryDislike(
+  accessToken: string,
+  targetAppUserId: string,
+): Promise<{ success: boolean }> {
+  const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/discovery/dislike`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ targetAppUserId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Falha ao registrar dislike');
+  }
+  return res.json();
+}
+
 /** Salva os filtros de discovery no servidor (idade, interesses, raio). */
 export async function saveDiscoveryFilters(
   accessToken: string,

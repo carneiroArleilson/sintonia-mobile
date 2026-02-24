@@ -20,7 +20,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useTranslation } from '../i18n/LanguageProvider';
 import { useAuth } from '../api/AuthContext';
-import { getDiscoveryProfiles, getCategories, getProfile, updateProfileLocation, saveDiscoveryFilters, type DiscoveryProfile, type DiscoveryFilters, type CategoryItem } from '../api/client';
+import { getDiscoveryProfiles, getCategories, getProfile, updateProfileLocation, saveDiscoveryFilters, postDiscoveryLike, postDiscoveryDislike, type DiscoveryProfile, type DiscoveryFilters, type CategoryItem } from '../api/client';
 import { CITIES, type City } from '../data/cities';
 import { styles as st } from './MatchScreen.styles';
 
@@ -101,8 +101,17 @@ export function MatchScreen() {
   const gestureMode = useRef<'throw' | null>(null);
   const currentIndexRef = useRef(0);
   const profilesRef = useRef<DiscoveryProfile[]>([]);
+  const reactionRef = useRef<(profileId: string, action: 'like' | 'dislike') => void>(() => {});
   currentIndexRef.current = currentIndex;
   profilesRef.current = profiles;
+
+  useEffect(() => {
+    reactionRef.current = (profileId, action) => {
+      if (!token) return;
+      if (action === 'like') postDiscoveryLike(token, profileId).catch(() => {});
+      else postDiscoveryDislike(token, profileId).catch(() => {});
+    };
+  }, [token]);
 
   useEffect(() => {
     if (currentIndex > 0) {
@@ -353,6 +362,7 @@ export function MatchScreen() {
         const idx = currentIndexRef.current;
         const list = profilesRef.current;
         if (shouldThrow && list[idx]) {
+          reactionRef.current(list[idx].id, dx > 0 ? 'like' : 'dislike');
           runExitAnimation(dx > 0 ? 'right' : 'left', () => {});
         } else {
           Animated.spring(pan, {
@@ -369,13 +379,15 @@ export function MatchScreen() {
 
   const handleReject = useCallback(() => {
     if (profiles[currentIndex] == null) return;
+    if (token) postDiscoveryDislike(token, profiles[currentIndex].id).catch(() => {});
     runExitAnimation('left', () => {});
-  }, [currentIndex, profiles, runExitAnimation]);
+  }, [currentIndex, profiles, token, runExitAnimation]);
 
   const handleMatch = useCallback(() => {
     if (profiles[currentIndex] == null) return;
+    if (token) postDiscoveryLike(token, profiles[currentIndex].id).catch(() => {});
     runExitAnimation('right', () => {});
-  }, [currentIndex, profiles, runExitAnimation]);
+  }, [currentIndex, profiles, token, runExitAnimation]);
 
   const current = profiles[currentIndex];
   const next = profiles[currentIndex + 1];
