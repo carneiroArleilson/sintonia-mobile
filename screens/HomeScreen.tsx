@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,10 +11,13 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  FlatList,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Location from 'expo-location';
 import { useTranslation } from '../i18n/LanguageProvider';
 import { useAuth } from '../api/AuthContext';
 import {
@@ -25,8 +28,10 @@ import {
   updateProfilePhotoUrl,
   addGalleryPhoto,
   removeGalleryPhoto,
+  updateProfileLocation,
   type CategoryItem,
 } from '../api/client';
+import { CITIES, type City } from '../data/cities';
 import {
   PHONE_COUNTRIES,
   DEFAULT_PHONE_COUNTRY,
@@ -78,6 +83,17 @@ function isValidDateString(s: string): boolean {
   if (isNaN(y) || isNaN(m) || isNaN(d)) return false;
   const date = new Date(y, m - 1, d);
   return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+}
+
+function isAtLeast18(birthDateIso: string): boolean {
+  if (!birthDateIso || birthDateIso.length < 10) return false;
+  const [y, m, d] = birthDateIso.slice(0, 10).split('-').map(Number);
+  const birth = new Date(y, m - 1, d);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age--;
+  return age >= 18;
 }
 
 type Lang = 'pt' | 'en' | 'es';
@@ -166,10 +182,91 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
   const [showPhotoSourceModal, setShowPhotoSourceModal] = useState(false);
   const [showGalleryPhotoModal, setShowGalleryPhotoModal] = useState(false);
   const [galleryUploading, setGalleryUploading] = useState(false);
+  const [bio, setBio] = useState(user?.bio ?? '');
+  const [locationChoice, setLocationChoice] = useState<'gps' | 'manual' | null>(null);
+  const [locationCityName, setLocationCityName] = useState<string>('');
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [showCityPicker, setShowCityPicker] = useState(false);
+  const [citySearch, setCitySearch] = useState('');
+  const [locationUpdating, setLocationUpdating] = useState(false);
+
+  const LOCATION_CHOICE_KEY = '@sintonia_location_choice';
+  const LOCATION_LAST_LAT_KEY = '@sintonia_last_lat';
+  const LOCATION_LAST_LNG_KEY = '@sintonia_last_lng';
+  const LOCATION_LAST_SENT_AT_KEY = '@sintonia_last_location_sent_at';
+  const LOCATION_MANUAL_CITY_KEY = '@sintonia_location_manual_city_name';
 
   useEffect(() => {
     refreshProfile();
   }, [refreshProfile]);
+
+  useEffect(() => {
+    AsyncStorage.multiGet(['@sintonia_location_choice', '@sintonia_location_manual_city_name'])
+      .then(([[, choice], [, cityName]]) => {
+        if (choice === 'gps' || choice === 'manual') setLocationChoice(choice);
+        if (cityName) setLocationCityName(cityName);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleAllowLocation = useCallback(async () => {
+    if (!token) return;
+    setLocationUpdating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== Location.PermissionStatus.GRANTED) {
+        setShowLocationModal(false);
+        setLocationUpdating(false);
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const { latitude, longitude } = loc.coords;
+      await updateProfileLocation(token, latitude, longitude);
+      await AsyncStorage.setItem(LOCATION_CHOICE_KEY, 'gps');
+      await AsyncStorage.setItem(LOCATION_LAST_LAT_KEY, String(latitude));
+      await AsyncStorage.setItem(LOCATION_LAST_LNG_KEY, String(longitude));
+      await AsyncStorage.setItem(LOCATION_LAST_SENT_AT_KEY, String(Date.now()));
+      await AsyncStorage.removeItem('@sintonia_location_manual_city_name');
+      setLocationChoice('gps');
+      setLocationCityName('');
+      setShowLocationModal(false);
+    } catch (e) {
+      if (__DEV__) console.warn('[HomeScreen] Falha ao obter localização:', e);
+      setShowLocationModal(false);
+    } finally {
+      setLocationUpdating(false);
+    }
+  }, [token]);
+
+  const handleSelectCity = useCallback(
+    async (city: City) => {
+      if (!token) return;
+      try {
+        await updateProfileLocation(token, city.latitude, city.longitude);
+        await AsyncStorage.setItem(LOCATION_CHOICE_KEY, 'manual');
+        await AsyncStorage.setItem(LOCATION_LAST_LAT_KEY, String(city.latitude));
+        await AsyncStorage.setItem(LOCATION_LAST_LNG_KEY, String(city.longitude));
+        await AsyncStorage.setItem(LOCATION_LAST_SENT_AT_KEY, String(Date.now()));
+        await AsyncStorage.setItem('@sintonia_location_manual_city_name', city.name);
+        setLocationChoice('manual');
+        setLocationCityName(city.name);
+        setShowCityPicker(false);
+        setShowLocationModal(false);
+        setCitySearch('');
+      } catch (e) {
+        if (__DEV__) console.warn('[HomeScreen] Falha ao salvar cidade:', e);
+      }
+    },
+    [token],
+  );
+
+  const filteredCities = useMemo(() => {
+    const q = citySearch.trim().toLowerCase();
+    if (!q) return CITIES;
+    return CITIES.filter((c) => c.name.toLowerCase().includes(q));
+  }, [citySearch]);
 
   useEffect(() => {
     if (!user) return;
@@ -183,6 +280,7 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
     setGender(user.gender ?? null);
     setGenderLookingFor(user.genderLookingFor ?? null);
     setCategoryIds(user.categories ?? []);
+    setBio(user.bio ?? '');
   }, [user, langTyped, isEditing]);
 
   useEffect(() => {
@@ -396,6 +494,10 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
       Alert.alert('Erro', 'Data de nascimento inválida.');
       return;
     }
+    if (!isAtLeast18(birthDate)) {
+      Alert.alert(t('profileCompleteRequiredTitle'), t('profileUnderAge'));
+      return;
+    }
     if (!gender || !genderLookingFor) {
       Alert.alert('Erro', 'Selecione gênero e quem você quer conhecer.');
       return;
@@ -422,6 +524,7 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
         gender: gender || undefined,
         genderLookingFor: genderLookingFor || undefined,
         categories: categoryIds,
+        bio: bio.trim() || undefined,
       });
       await refreshProfile();
       setIsEditing(false);
@@ -445,6 +548,7 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
     langTyped,
     refreshProfile,
     t,
+    bio,
   ]);
 
   const handleCancel = useCallback(() => {
@@ -708,7 +812,11 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
                     }
                     mode="date"
                     display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
-                    maximumDate={new Date()}
+                    maximumDate={(() => {
+                      const d = new Date();
+                      d.setFullYear(d.getFullYear() - 18);
+                      return d;
+                    })()}
                     minimumDate={new Date(1900, 0, 1)}
                     onChange={(_, selectedDate) => {
                       if (selectedDate) {
@@ -798,6 +906,19 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
                   ))}
                 </View>
               )}
+            </View>
+
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>{t('profileDescriptionTitle')}</Text>
+              <TextInput
+                style={[styles.formInput, { minHeight: 100, textAlignVertical: 'top', paddingTop: 14 }]}
+                value={bio}
+                onChangeText={setBio}
+                placeholder={t('profileDescriptionPlaceholder')}
+                placeholderTextColor={PLACEHOLDER_COLOR}
+                multiline
+                numberOfLines={4}
+              />
             </View>
 
             <View style={styles.rowButtons}>
@@ -958,6 +1079,32 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
             value={lookingForLabel}
             emptyChar={t('homeNoData')}
           />
+          <DataRow
+            label={t('profileDescriptionTitle')}
+            value={user?.bio ?? null}
+            emptyChar={t('homeNoData')}
+          />
+          <View style={styles.dataRow}>
+            <Text style={styles.dataLabel}>{t('locationLabel')}</Text>
+            <View style={styles.locationRow}>
+              <Text style={styles.dataValue} numberOfLines={1}>
+                {locationChoice === 'gps'
+                  ? t('locationLabelGps')
+                  : locationChoice === 'manual' && locationCityName
+                    ? `${t('locationLabelCity')}: ${locationCityName}`
+                    : locationChoice === 'manual'
+                      ? t('locationLabelCity')
+                      : t('homeNoData')}
+              </Text>
+              <TouchableOpacity
+                style={styles.locationChangeBtn}
+                onPress={() => setShowLocationModal(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.locationChangeBtnText}>{t('locationChange')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           {categoriesCount > 0 ? (
             <View style={styles.dataRow}>
               <Text style={styles.dataLabel}>{t('profileCategories')}</Text>
@@ -1014,6 +1161,82 @@ export function HomeScreen({ embedded }: { embedded?: boolean }) {
         cameraLabel={t('photoSourceCamera')}
         cancelLabel={t('cancelEdit')}
       />
+
+      <Modal visible={showLocationModal} animationType="fade" transparent>
+        <View style={styles.locationModalOverlay}>
+          <View style={styles.locationModalCard}>
+            <Text style={styles.locationModalTitle}>{t('locationPromptTitle')}</Text>
+            <TouchableOpacity
+              style={styles.locationModalPrimaryBtn}
+              onPress={handleAllowLocation}
+              disabled={locationUpdating}
+              activeOpacity={0.8}
+            >
+              {locationUpdating ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.locationModalPrimaryBtnText}>{t('locationAllow')}</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.locationModalSecondaryBtn}
+              onPress={() => { setShowLocationModal(false); setShowCityPicker(true); }}
+              disabled={locationUpdating}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.locationModalSecondaryBtnText}>{t('locationChooseCity')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.locationModalCancelBtn}
+              onPress={() => setShowLocationModal(false)}
+              disabled={locationUpdating}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.locationModalCancelBtnText}>{t('cancelEdit')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showCityPicker} animationType="slide" transparent onRequestClose={() => setShowCityPicker(false)}>
+        <View style={styles.cityPickerOverlay}>
+          <View style={styles.cityPickerContainer}>
+            <View style={styles.cityPickerHeader}>
+              <Text style={styles.cityPickerTitle}>{t('locationChooseCity')}</Text>
+              <TouchableOpacity
+                style={styles.cityPickerCloseBtn}
+                onPress={() => { setShowCityPicker(false); setCitySearch(''); }}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="close" size={28} color="#1F2937" />
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={styles.citySearchInput}
+              value={citySearch}
+              onChangeText={setCitySearch}
+              placeholder={t('citySearchPlaceholder')}
+              placeholderTextColor="#9CA3AF"
+            />
+            <FlatList
+              data={filteredCities}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.cityRow}
+                  onPress={() => handleSelectCity(item)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.cityRowText}>{item.name}</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+                </TouchableOpacity>
+              )}
+              style={styles.cityList}
+              ListEmptyComponent={<Text style={styles.cityListEmpty}>{t('cityListEmpty')}</Text>}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

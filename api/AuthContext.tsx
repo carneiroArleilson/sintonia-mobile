@@ -25,6 +25,8 @@ export type AuthUser = {
   signupVia?: 'phone' | 'social' | 'email';
   /** Galeria de fotos (vários ângulos) */
   galleryPhotos?: { id: string; url: string }[];
+  /** Descrição sobre si */
+  bio?: string | null;
 };
 
 type AuthContextValue = {
@@ -81,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profileComplete: profile.profileComplete,
         signupVia: profile.signupVia,
         galleryPhotos: profile.galleryPhotos,
+        bio: profile.bio ?? undefined,
       });
     } catch {
       // keep current user
@@ -106,6 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profileComplete: true,
         signupVia: profile.signupVia,
         galleryPhotos: profile.galleryPhotos,
+        bio: profile.bio ?? undefined,
       });
     } catch {
       // keep current user

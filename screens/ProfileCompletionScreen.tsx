@@ -25,7 +25,7 @@ import * as ImagePicker from 'expo-image-picker';
 
 const PLACEHOLDER_COLOR = '#9CA3AF';
 
-type StepType = 'name' | 'email' | 'phone' | 'birthDate' | 'gender' | 'who' | 'categories' | 'photo' | 'gallery';
+type StepType = 'name' | 'email' | 'phone' | 'birthDate' | 'gender' | 'who' | 'categories' | 'photo' | 'gallery' | 'description';
 
 function buildStepTypes(signupVia?: 'phone' | 'social' | 'email'): StepType[] {
   return [
@@ -39,6 +39,7 @@ function buildStepTypes(signupVia?: 'phone' | 'social' | 'email'): StepType[] {
     'categories',
     'photo',
     'gallery',
+    'description',
   ];
 }
 
@@ -76,6 +77,18 @@ function isValidDateString(s: string): boolean {
   if (isNaN(y) || isNaN(m) || isNaN(d)) return false;
   const date = new Date(y, m - 1, d);
   return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+}
+
+/** Retorna true se a data de nascimento (ISO yyyy-mm-dd) indica 18 anos ou mais. */
+function isAtLeast18(birthDateIso: string): boolean {
+  if (!birthDateIso || birthDateIso.length < 10) return false;
+  const [y, m, d] = birthDateIso.slice(0, 10).split('-').map(Number);
+  const birth = new Date(y, m - 1, d);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age--;
+  return age >= 18;
 }
 
 /** Ícone roxo (S) no fluxo de cadastro, ao lado do nome Sintonia */
@@ -149,6 +162,7 @@ export function ProfileCompletionScreen() {
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
   const [showGalleryPhotoModal, setShowGalleryPhotoModal] = useState(false);
   const [galleryUploading, setGalleryUploading] = useState(false);
+  const [description, setDescription] = useState(user?.bio ?? '');
   const hasInitializedFromUser = useRef(false);
 
   const stepTypes = useMemo(() => buildStepTypes(user?.signupVia), [user?.signupVia]);
@@ -168,6 +182,7 @@ export function ProfileCompletionScreen() {
     setGender(user.gender ?? null);
     setGenderLookingFor(user.genderLookingFor ?? null);
     setCategoryIds(user.categories ?? []);
+    setDescription(user.bio ?? '');
   }, [user, lang]);
 
   useEffect(() => {
@@ -204,7 +219,7 @@ export function ProfileCompletionScreen() {
       case 'phone':
         return getFullPhoneDigits(phoneCountryCode, phoneNationalDigits).length >= 10;
       case 'birthDate':
-        return isValidDateString(birthDate.trim());
+        return isValidDateString(birthDate.trim()) && isAtLeast18(birthDate.trim());
       case 'gender':
         return gender != null && gender.length > 0;
       case 'who':
@@ -214,6 +229,8 @@ export function ProfileCompletionScreen() {
       case 'photo':
         return true;
       case 'gallery':
+        return true;
+      case 'description':
         return true;
       default:
         return false;
@@ -460,10 +477,15 @@ export function ProfileCompletionScreen() {
       emailOk &&
       phoneOk &&
       isValidDateString(birthDate.trim()) &&
+      isAtLeast18(birthDate.trim()) &&
       gender &&
       genderLookingFor &&
       categoryIds.length > 0;
     if (!valid) {
+      if (isValidDateString(birthDate.trim()) && !isAtLeast18(birthDate.trim())) {
+        Alert.alert(t('profileCompleteRequiredTitle'), t('profileUnderAge'));
+        return;
+      }
       Alert.alert(
         t('profileCompleteRequiredTitle'),
         t('profileCompleteRequiredMessage'),
@@ -493,6 +515,7 @@ export function ProfileCompletionScreen() {
         genderLookingFor: genderLookingFor ?? undefined,
         categories: categoryIds,
         photoUrl: localPhotoUri ?? user?.photoUrl ?? undefined,
+        bio: description.trim() || undefined,
       };
       if (__DEV__) {
         console.log('[ProfileCompletion] Salvando perfil...', {
@@ -652,6 +675,9 @@ export function ProfileCompletionScreen() {
           <View style={styles.stepBlock}>
             <Text style={styles.stepTitle}>{t('profileBirthDateTitle')}</Text>
             <Text style={styles.stepSubtitle}>{t('profileBirthDateSubtitle')}</Text>
+            {isValidDateString(birthDate.trim()) && !isAtLeast18(birthDate.trim()) && (
+              <Text style={styles.ageRestrictionText}>{t('profileUnderAge')}</Text>
+            )}
             <View style={styles.dateInputRow}>
               <TextInput
                 style={styles.dateInput}
@@ -706,7 +732,11 @@ export function ProfileCompletionScreen() {
                     }
                     mode="date"
                     display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
-                    maximumDate={new Date()}
+                    maximumDate={(() => {
+                      const d = new Date();
+                      d.setFullYear(d.getFullYear() - 18);
+                      return d;
+                    })()}
                     minimumDate={new Date(1900, 0, 1)}
                     onChange={(_, selectedDate) => {
                       if (selectedDate) {
@@ -893,6 +923,23 @@ export function ProfileCompletionScreen() {
           </View>
         );
       }
+      case 'description':
+        return (
+          <View style={styles.stepBlock}>
+            <Text style={styles.stepTitle}>{t('profileDescriptionTitle')}</Text>
+            <Text style={styles.stepSubtitle}>{t('profileDescriptionSubtitle')}</Text>
+            <TextInput
+              style={[styles.input, styles.descriptionInput]}
+              value={description}
+              onChangeText={setDescription}
+              placeholder={t('profileDescriptionPlaceholder')}
+              placeholderTextColor={PLACEHOLDER_COLOR}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+          </View>
+        );
       default:
         return null;
     }

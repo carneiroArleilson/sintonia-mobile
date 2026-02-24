@@ -64,6 +64,13 @@ export const styles = StyleSheet.create({
     marginBottom: 28,
     lineHeight: 22,
   },
+  ageRestrictionText: {
+    fontSize: 14,
+    color: '#B91C1C',
+    textAlign: 'center',
+    marginBottom: 16,
+    fontWeight: '600',
+  },
   input: {
     width: '100%',
     backgroundColor: '#FFFFFF',
@@ -74,6 +81,10 @@ export const styles = StyleSheet.create({
     paddingVertical: 18,
     fontSize: 17,
     color: TEXT_DARK,
+  },
+  descriptionInput: {
+    minHeight: 120,
+    paddingTop: 18,
   },
   dateInputRow: {
     flexDirection: 'row',

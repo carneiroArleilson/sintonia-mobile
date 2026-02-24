@@ -34,7 +34,8 @@
       ["@react-native-google-signin/google-signin", { "iosUrlScheme": "com.googleusercontent.apps.427895922538-g7mtiga9752d3mvjrc2vj2a7d3c0tm9v" }],
       ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }],
       "@react-native-community/datetimepicker",
-      "expo-image-picker"
+      "expo-image-picker",
+      ["expo-location", { "locationWhenInUsePermission": "O Sintonia usa sua localização para melhorar a experiência (dado privado, não compartilhado)." }]
     ]
   }
 }

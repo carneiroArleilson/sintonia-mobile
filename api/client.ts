@@ -113,6 +113,7 @@ export type AppProfile = {
   genderLookingFor?: string | null;
   categories?: string[];
   profileComplete?: boolean;
+  bio?: string | null;
 };
 
 export async function getProfile(accessToken: string): Promise<{
@@ -128,6 +129,7 @@ export async function getProfile(accessToken: string): Promise<{
   profileComplete?: boolean;
   signupVia?: 'phone' | 'social' | 'email';
   galleryPhotos?: { id: string; url: string }[];
+  bio?: string | null;
 }> {
   const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -190,6 +192,8 @@ export type DiscoveryProfile = {
   birthDate: string;
   categories: string[];
   galleryPhotos?: { id: string; url: string }[];
+  /** Distância em metros (null se não disponível). */
+  distanceMeters?: number | null;
 };
 
 /** Lista perfis para discovery (tela de match). Requer token app_user. */
@@ -198,6 +202,27 @@ export async function getDiscoveryProfiles(accessToken: string): Promise<Discove
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error('Falha ao carregar perfis');
+  return res.json();
+}
+
+/** Atualiza a localização do usuário no servidor (privada, só para uso interno). */
+export async function updateProfileLocation(
+  accessToken: string,
+  latitude: number,
+  longitude: number,
+): Promise<{ success: boolean }> {
+  const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/profile/location`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ latitude, longitude }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Falha ao atualizar localização');
+  }
   return res.json();
 }
 
@@ -238,6 +263,7 @@ export async function updateAppProfile(
     gender?: string | null;
     genderLookingFor?: string | null;
     categories?: string[];
+    bio?: string | null;
   },
 ): Promise<{ success: boolean }> {
   const body: Record<string, unknown> = {};
@@ -249,6 +275,7 @@ export async function updateAppProfile(
   if (data.gender !== undefined) body.gender = data.gender;
   if (data.genderLookingFor !== undefined) body.genderLookingFor = data.genderLookingFor;
   if (data.categories !== undefined) body.categories = data.categories;
+  if (data.bio !== undefined) body.bio = data.bio;
 
   const res = await fetchWithNetworkHint(`${API_BASE_URL}/auth/profile`, {
     method: 'PATCH',
